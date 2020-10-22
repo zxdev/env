@@ -35,13 +35,13 @@ func (ex *Expire) Report() bool { ex.report = !ex.report; return ex.report }
 // Add will register a directory path and file age timeframe
 func (ex *Expire) Add(path string, age time.Duration) *Expire {
 
-	log.Printf("expire: add %s @%s", filepath.Base(path), age)
-
 	if len(path) > 0 {
 		ex.path = append(ex.path, path)
 		if age == 0 {
 			age = time.Hour * 24
 		}
+		log.Printf("expire: add %s @%s", filepath.Base(path), age)
+
 		ex.age = append(ex.age, age)
 	}
 
