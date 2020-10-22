@@ -118,6 +118,7 @@ os environment [ A=xyz B=string(true) C=string(42) ]
 * Dir - type provides Join,Create path methods
 * GracefulFunc - type is func(ctx context.Context)
 * Graceful - interface type for Start() GracefulFunc
+* Expire - path based file expiration manager
 
 ## Funcs
 
@@ -225,6 +226,18 @@ $ ./example help
  -B              | blocking flag
                  |  :: require
  -x              | x is int
+```
+
+
+## Expiration manager
+
+The file expiration manager, the ```Expire``` type, demonstrates the use of a graceful struct design and provides a configurable timebase automated directory cleanup service or process.
+
+```golang
+
+expire := env.NewExpire("path1","path2")
+env.Manage(expire)
+
 ```
 
 ### Considerations

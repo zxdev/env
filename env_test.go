@@ -179,3 +179,12 @@ func TestReadyStop(t *testing.T) {
 
 	env.Stop()
 }
+
+// func TestWaitCalculation(t *testing.T) {
+
+// 	checkOn := time.Hour
+// 	t.Log(time.Now().Format(time.RFC3339))
+// 	t.Log(time.Now().Add(checkOn).Sub(time.Now().Add(checkOn / 2).Round(checkOn)))
+// 	t.Log(time.Now().Add(checkOn / 2).Round(checkOn).Sub(time.Now()))
+
+// }
