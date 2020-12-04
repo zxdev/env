@@ -31,27 +31,22 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 )
 
 // default configuration setting
 var (
-	Identity    = filepath.Base(os.Args[0])            // Identity of app, as configured here
-	Version     string                                 // Version information, set by a builder.sh
-	Build       string                                 // Build information, set by a builder.sh
-	Description string                                 // Brief description, license, copyright
-	EtcPath     Dir                         = "/etc"   // EtcPath base path
-	SrvPath     Dir                         = "/srv"   // SrvPath base path
-	VarPath     Dir                         = "/var"   // VarPath base path
-	devOS       string                      = "darwin" // development os, for autodetection
-	development bool                                   // developtment flag
-	env         bool                                   // env write settings to os.Environ
+	Identity    = filepath.Base(os.Args[0])          // Identity of app, as configured here
+	Version     string                               // Version information, set by a builder.sh
+	Build       string                               // Build information, set by a builder.sh
+	Description string                               // Brief description, license, copyright
+	EtcPath     Dir                         = "/etc" // EtcPath base path
+	SrvPath     Dir                         = "/srv" // SrvPath base path
+	VarPath     Dir                         = "/var" // VarPath base path
+	development bool                                 // developtment flag
+	env         bool                                 // env write settings to os.Environ
 )
-
-// DevOS sets the development runtime environment for autodetection
-func DevOS(os string) { devOS = os }
 
 // Development flag toggle; apply development setting in Init()
 func Development() bool { development = !development; return development }
@@ -61,18 +56,31 @@ func Env() bool { env = !env; return env }
 
 // Init processe populates cfg structs by applying cfg struct default tag values,
 // then any conf file (/etc/{identity}/{identity}.conf) values, then environment
-// settings, followed by command line os.Args values to fill supported struct type
-// fields; pass nil to load args or conf automatically; Env() will toggle env=true
-// to write struct field final KEY=value to os.Environ table
+// settings, then command line os.Args values to fill supported struct type
+// fields; pass nil to load args or conf automatically
+//
+// configuration toggles:
+//
+//  Development() will force development settings that are otherwise autodetected
+//  by the presense of a Development folder in the user home directory
+//
+//  Env() will mirror all final struct env:TAG=value to the os environment
 func Init(cfg ...interface{}) {
 
-	if development || runtime.GOOS == devOS {
+	// autodetect dev system by presense of a Development folder in user home directory
+	user, err := os.UserHomeDir()
+	if err != nil {
+		development = true
+	}
+
+	_, err = os.Stat(filepath.Join(user, "Development"))
+	if !os.IsNotExist(err) || development {
 		Identity = "development"
 		Version = Identity
 		Build = Identity
-		EtcPath = "_dev/etc"
-		SrvPath = "_dev/srv"
-		VarPath = "_dev/var"
+		EtcPath = ".dev/etc"
+		SrvPath = ".dev/srv"
+		VarPath = ".dev/var"
 		development = true
 	}
 
