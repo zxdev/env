@@ -220,13 +220,10 @@ $ ./example help
  version development
  build   development
 
- -file           | filename to use [sample.dat]
-                 |  :: require,sequence,environ
- -B              | blocking flag
-                 |  :: require
- -x              | x is int
+ file            | string | filename to use [sample.dat] [require,order,environ]
+ -service        | bool   | service loop flag [require]
+ -x              | int    | x is int
 ```
-
 
 ## Expiration manager
 
