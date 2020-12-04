@@ -240,6 +240,13 @@ func helpTag(cfg interface{}) {
 		}
 
 		tag, special, _ := tagParse(tag)
+		if len(special) > 0 {
+			if len(val) > 0 {
+				val += "] ["
+			}
+			val += special
+			def = true
+		}
 		if def {
 			help = fmt.Sprintf("%s [%s]", help, val)
 		}
@@ -247,10 +254,10 @@ func helpTag(cfg interface{}) {
 			tag = "-" + tag
 		}
 
-		fmt.Printf(" %-15s | %s\n", tag, help)
-		if len(special) > 0 {
-			fmt.Printf(" %15s |  :: %s\n", "", special)
-		}
+		fmt.Printf(" %-15s | %-6s | %s\n", tag, v.Type().Field(i).Type.String(), help)
+		// if len(special) > 0 {
+		// 	fmt.Printf(" %15s |  :: %s\n", "", special)
+		// }
 
 	}
 }
