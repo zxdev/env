@@ -123,8 +123,7 @@ os environment [ A=xyz B=string(true) C=string(42) ]
 ## Funcs
 
 * Context - returns the background env package context
-* DevOS - specify the development OS runtime environment; darwin by default
-* Developement - toggle developement flag on|off; autodetected based on DevOS value
+* Developement - toggle developement flag on|off; autodetection based on $HOME/Development folder detection
 * Env - toggle env flag on|off to write finalized env:tag struct fields to os.Environ table
 * Init - process, parse, and populate structs with values
 * Fork - alternate Init that also allows a program to run like a daemon start|stop enabled process
