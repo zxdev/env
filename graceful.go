@@ -137,32 +137,32 @@ func Manage(g interface{}, name ...string) {
 
 	switch g.(type) {
 	case Graceful:
-		// func (e *Example) Start() config.GracefulFunc {
+		// func (e *Example) Start() env.GracefulFunc {
 		//  return func(ctx context.Context) {
 		//   <-ctx.Done()
 		//  }
 		// }
-		// config.Manage(&cfg)
+		// env.Manage(&cfg)
 		go func() { run(g.(Graceful).Start(), name[0]) }()
 
 	case func() GracefulFunc:
-		// func sample() config.GracefulFunc {
+		// func sample() env.GracefulFunc {
 		//  return func(ctx context.Context) {
 		//   <-ctx.Done()
 		//  }
 		// }
-		// config.Manage(sample, "sample")
+		// env.Manage(sample, "sample")
 		go func() { run(g.(func() GracefulFunc)(), name[0]) }()
 
 	case GracefulFunc:
-		// func (ex *Example) Connect(param string) config.GracefulFunc {
+		// func (ex *Example) Connect(param string) env.GracefulFunc {
 		//  go func(){ // wrap to avoid lock-step blocking start
 		//  }()
 		//  return func(ctx context.Context) {
 		//   <-ctx.Done()
 		//  }
 		// }
-		// config.Manage(ex.Connect("param"), "connect")
+		// env.Manage(ex.Connect("param"), "connect")
 		go func() { run(g.(GracefulFunc), name[0]) }()
 
 	case func(ctx context.Context):
