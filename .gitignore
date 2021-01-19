@@ -1,0 +1,8 @@
+# macOS
+**/.DS_Store
+
+# microsoft temporary files
+**/~*
+
+# directories
+_dev/
