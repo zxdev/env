@@ -31,6 +31,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -61,20 +62,18 @@ func Env() bool { env = !env; return env }
 //
 // configuration toggles:
 //
-//  Development() will force development settings that are otherwise autodetected
-//  by the presense of a Development folder in the user home directory
+//  Development() will toggle development settings that are otherwise autodetected
+//  by the presense of a non-linux operating system; linux is always production
 //
 //  Env() will mirror all final struct env:TAG=value to the os environment
 func Init(cfg ...interface{}) {
 
-	// autodetect dev system by presense of a Development folder in user home directory
-	user, err := os.UserHomeDir()
-	if err != nil {
+	// autodetect production system
+	if runtime.GOOS != "linux" {
 		development = true
 	}
 
-	_, err = os.Stat(filepath.Join(user, "Development"))
-	if !os.IsNotExist(err) || development {
+	if development {
 		Identity = "development"
 		Version = Identity
 		Build = Identity
