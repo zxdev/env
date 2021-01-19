@@ -77,9 +77,9 @@ func Init(cfg ...interface{}) {
 		Identity = "development"
 		Version = Identity
 		Build = Identity
-		EtcPath = ".dev/etc"
-		SrvPath = ".dev/srv"
-		VarPath = ".dev/var"
+		EtcPath = "_dev/etc"
+		SrvPath = "_dev/srv"
+		VarPath = "_dev/var"
 		development = true
 	}
 
