@@ -40,7 +40,7 @@ type Sample struct {
 }
 
 // Start is the Graceful interface initializer
-func (s *Sample) Start() env.GracefulFunc {
+func (s *Sample) Start() func(ctx context.Context) {
 	// init code here
 	return func(ctx context.Context) {
 		<-ctx.Done()
@@ -49,7 +49,7 @@ func (s *Sample) Start() env.GracefulFunc {
 }
 
 // Run sample forever; graceful
-func (s *Sample) Run() env.GracefulFunc {
+func (s *Sample) Run() func(ctx context.Context) {
 	var index int
 	return func(ctx context.Context) {
 		for {

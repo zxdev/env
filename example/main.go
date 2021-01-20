@@ -40,7 +40,7 @@ type Example struct {
 }
 
 // Start is a the Graceful interface initializer
-func (ex *Example) Start() env.GracefulFunc {
+func (ex *Example) Start() func(ctx context.Context) {
 	// init code here
 	return func(ctx context.Context) {
 		<-ctx.Done()
@@ -62,7 +62,7 @@ func main() {
 	*/
 
 	env.Summary(&example)
-	env.Manage(&example)
+	env.Manager(&example)
 
 	if example.Service {
 		// service loop example

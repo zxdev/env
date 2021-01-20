@@ -24,157 +24,156 @@ package env
 
 import (
 	"context"
-	"crypto/rand"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 )
 
-/*
-
-	// var s Sample
-	// env.Manage(&s)
-	//  .. or ..
-	// s := new(Sample)
-	// env.Manage(s)
-
-	type Sample struct{}
-	func (s *Sample) Start() env.GracefulFunc {
-		// startup jobs and definatios here
-		return func(ctx context.Context) {
-			<-ctx.Done()
-			// shutdown and cleanup here
-		}
-	}
-
-	// env.Manage(Example)
-	func Example(ctx context.Context) env.GracefulFunc {
-		// startup jobs and definatios here
-		return func(ctx context.Context) {
-			<-ctx.Done()
-			// shutdown and cleanup here
-		}
-	}
-
-	// env.Manage(Param(42))
-	func Param(n int) env.GracefulFunc {
-		go func(){ // prevent lock-step with go routine wrapper
-		// startup jobs and definatios here
-		}()
-		return func(ctx context.Context) {
-			<-ctx.Done()
-			// shutdown and cleanup here
-		}
-	}
-
-*/
-
 var (
 	// ctx and wg for graceful management
-	ctx, cancel  = context.WithCancel(context.Background())
-	wgInitialize = new(sync.WaitGroup) // initialize control group
-	wgShutdown   = new(sync.WaitGroup) // shutdown control group
+	ctx, cancel = context.WithCancel(context.Background())
+	wgManager   = new(sync.WaitGroup) // control group for Manage()
+	wgShutdown  = new(sync.WaitGroup) // shutdown control group
 )
 
 // Context returns the master graceful context.Context
 func Context() context.Context { return ctx }
 
-// GracefulFunc controller type
-type GracefulFunc func(ctx context.Context)
-
-// Graceful controller interface type
-type Graceful interface {
-	Start() GracefulFunc
+// gracefulStruct controller interface type
+type gracefulStruct1 interface {
+	Start() func(ctx context.Context)
 }
 
-// run manager; does not enter here until passed in function
-// has completely executed and returned the shutdown function
-func run(shutdown GracefulFunc, name string) {
-
-	wgInitialize.Done()
-	shutdown(ctx)
-	if summary {
-		log.Printf("%s: stop", name)
-	}
-	wgShutdown.Done()
+type gracefulStruct2 interface {
+	Start() func(ctx context.Context) // start method
+	Name() string                     // optional, alternate name other than
 }
 
-// Manage start/stop gracefully requires Graceful interface signature or a graceful
-// function with with a graceful signature following func(ctx context.Context) format;
-// the optional name is automatically extracted from Graceful interface types or is
-// randomly generated when a name is not supplied with a graceful function
-func Manage(g interface{}, name ...string) {
+// gracefulStruct3 controller interface type
+type gracefulStruct3 interface {
+	Start(ctx context.Context)
+}
 
-	wgInitialize.Add(1)
+// gracefulStruct4 controller interface type
+type gracefulStruct4 interface {
+	Start(ctx context.Context) // start method
+	Name() string              // optional, alternate name other than
+}
+
+// Manager places the struct or func under graceful management and references it by name
+// and requires the function sigature of 'func(ctx context.Context)', so any closure must
+// return the graceful signature to operate properly as well.
+//
+// A graceful struct must have a 'Start()' method with the proper graceful signature, and
+// to override the use the struct name as defined in the code a struct my define an
+// optional 'Name() string' signature method to provide an alternative name reference.
+//
+// The use of any params passed to a struct or function that uses a closure will make the
+// sequence run lock-step. To aloid this, wrap the closure head in a go routine.
+func Manager(g interface{}) {
+
+	wgManager.Add(1)
 	wgShutdown.Add(1)
 
-	switch g.(type) {
-	case Graceful:
-		if len(name) == 0 { // extract name reference
-			if reflect.TypeOf(g).Kind() == reflect.Ptr {
-				name = []string{strings.ToLower(reflect.TypeOf(g).Elem().Name())}
-			} else {
-				name = []string{strings.ToLower(reflect.TypeOf(g).Name())}
-			}
+	switch {
+	case reflect.TypeOf(g).Kind() == reflect.Ptr &&
+		reflect.TypeOf(g).Elem().Kind() == reflect.Struct:
+
+		switch g.(type) {
+
+		case gracefulStruct4: // Start(ctx context.Context); Name() string
+			go func() {
+				if summary {
+					log.Printf("%s: start", strings.ToLower(g.(gracefulStruct4).Name()))
+					defer log.Printf("%s: stop", strings.ToLower(g.(gracefulStruct4).Name()))
+				}
+				wgManager.Done()
+				g.(gracefulStruct4).Start(ctx)
+				wgShutdown.Done()
+			}()
+
+		case gracefulStruct3: // Start(ctx context.Context)
+			go func() {
+				if summary {
+					log.Printf("%s: start", strings.ToLower(reflect.TypeOf(g).Elem().Name()))
+					defer log.Printf("%s: stop", strings.ToLower(reflect.TypeOf(g).Elem().Name()))
+				}
+				wgManager.Done()
+				g.(gracefulStruct3).Start(ctx)
+				wgShutdown.Done()
+			}()
+
+		case gracefulStruct2: // Start() func(ctx context.Context); Name() string
+			go func() {
+				if summary {
+					log.Printf("%s: start", strings.ToLower(g.(gracefulStruct2).Name()))
+					defer log.Printf("%s: stop", strings.ToLower(g.(gracefulStruct2).Name()))
+				}
+				wgManager.Done()
+				g.(gracefulStruct2).Start()(ctx)
+				wgShutdown.Done()
+			}()
+
+		case gracefulStruct1: // Start() func(ctx context.Context)
+			go func() {
+				if summary {
+					log.Printf("%s: start", strings.ToLower(reflect.TypeOf(g).Elem().Name()))
+					defer log.Printf("%s: stop", strings.ToLower(reflect.TypeOf(g).Elem().Name()))
+				}
+				wgManager.Done()
+				g.(gracefulStruct1).Start()(ctx)
+				wgShutdown.Done()
+			}()
+
+		default:
+			log.Println("alert: unsupported struct type")
+			os.Exit(0)
+		}
+
+	case reflect.TypeOf(g).Kind() == reflect.Func:
+
+		// convert insite/pkg/env_test.(*Gamma).Basic-fm to 'basic'
+		name := runtime.FuncForPC(reflect.ValueOf(g).Pointer()).Name() // identify func by name
+		name = strings.Split(name, ".")[strings.Count(name, ".")]      // extract last segment
+		name = strings.TrimSuffix(name, "-fm")                         // clean up tail
+		name = strings.ToLower(name)                                   // lowercase
+
+		switch g.(type) {
+		case func() func(ctx context.Context): // func() func(ctx context.Context)
+			go func() {
+				if summary {
+					log.Printf("%s: start", name)
+					defer log.Printf("%s: stop", name)
+				}
+				wgManager.Done()
+				g.(func() func(ctx context.Context))()(ctx)
+				wgShutdown.Done()
+			}()
+
+		case func(ctx context.Context): // func(ctx context.Context)
+			go func() {
+				if summary {
+					log.Printf("%s: start", name)
+					defer log.Printf("%s: stop", name)
+				}
+				wgManager.Done()
+				g.(func(ctx context.Context))(ctx)
+				wgShutdown.Done()
+			}()
+
+		default:
+			log.Printf("alert: %s unsupported func type", name)
+			os.Exit(0)
 		}
 
 	default:
-		if len(name) == 0 {
-			var b [4]byte
-			rand.Read(b[:])
-			name = []string{fmt.Sprintf("%x", b)}
-		}
-	}
-
-	if summary {
-		log.Printf("%s: start", name[0])
-	}
-
-	switch g.(type) {
-	case Graceful:
-		// func (e *Example) Start() env.GracefulFunc {
-		//  return func(ctx context.Context) {
-		//   <-ctx.Done()
-		//  }
-		// }
-		// env.Manage(&cfg)
-		go func() { run(g.(Graceful).Start(), name[0]) }()
-
-	case func() GracefulFunc:
-		// func sample() env.GracefulFunc {
-		//  return func(ctx context.Context) {
-		//   <-ctx.Done()
-		//  }
-		// }
-		// env.Manage(sample, "sample")
-		go func() { run(g.(func() GracefulFunc)(), name[0]) }()
-
-	case GracefulFunc:
-		// func (ex *Example) Connect(param string) env.GracefulFunc {
-		//  go func(){ // wrap to avoid lock-step blocking start
-		//  }()
-		//  return func(ctx context.Context) {
-		//   <-ctx.Done()
-		//  }
-		// }
-		// env.Manage(ex.Connect("param"), "connect")
-		go func() { run(g.(GracefulFunc), name[0]) }()
-
-	case func(ctx context.Context):
-		// func sample(ctx context.Context) {
-		//   <-ctx.Done()
-		//  }
-		// env.Manage(func(),"sample")
-		go func() { run(g.(func(ctx context.Context)), name[0]) }()
-
-	default:
-		fmt.Fprintln(os.Stderr, "env: unrecognized graceful interface")
-		os.Exit(1)
+		log.Println("alert: unsupported type")
+		os.Exit(0)
 	}
 
 }
@@ -185,7 +184,7 @@ func Ready() {
 	// avoid panic: sync: WaitGroup is reused before previous Wait has returned
 	time.Sleep(time.Millisecond * 100)
 
-	wgInitialize.Wait()
+	wgManager.Wait()
 	if summary {
 		messageBar("log")
 	}
@@ -198,16 +197,16 @@ func Ready() {
 // Stop() should only be called as the last item in a main() process.
 func Stop() {
 
-	wgInitialize.Wait() // ensure all initializations completed
+	wgManager.Wait() // ensure all initializations completed
 	if summary {
 		messageBar("shutdown")
 	}
 
-	cancel()          // signals graceful controllers to exit
-	wgShutdown.Wait() // wait until all graceful controllers exit
+	cancel() // signal graceful controllers to exit
 	if summary {
-		time.Sleep(time.Millisecond * 100) // delay allows log of shutdown bye message
+		defer messageBar("bye")
 	}
+	wgShutdown.Wait() // wait until all graceful controllers exit
 
 }
 

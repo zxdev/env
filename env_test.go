@@ -31,29 +31,25 @@ import (
 	"github.com/zxdev/env"
 )
 
-type Ab struct {
-	A string `env:"a" default:"aa" help:"A is string"`
-	B bool   `env:"b" help:"B is bool"`
-	C int    `env:"c" help:"C is int"`
-}
-
-type Xy struct {
-	X string `env:"x,require,environ,flagless" default:"xx" help:"X is string"`
-	Y bool   `env:"y" help:"Y is bool"`
-	Z int    `env:"z" help:"Z is int"`
-}
-
 /*
 
 	graceful struct examples
 
 */
 
-func (a *Ab) Start() env.GracefulFunc {
-	time.Sleep(time.Second * 3)
+type Alpha struct {
+	A string `env:"a" default:"aa" help:"A is string"`
+	B bool   `env:"b" help:"B is bool"`
+	C int    `env:"c" help:"C is int"`
+}
+
+func (a *Alpha) Start() func(ctx context.Context) {
+	log.Println("alpha: init")
+	time.Sleep(time.Second)
 	var count int
-	log.Println("ab: running")
+
 	return func(ctx context.Context) {
+		log.Println("alpha: running")
 		for {
 			time.Sleep(time.Second)
 			select {
@@ -61,45 +57,74 @@ func (a *Ab) Start() env.GracefulFunc {
 				return
 			default:
 				count++
-				log.Println("sleep:", count)
+				log.Println("alpah: sleep", count)
 			}
 		}
 	}
 }
 
-func (a *Ab) Starter() env.GracefulFunc {
-	time.Sleep(time.Second * 3)
+type Beta struct {
+	A string `env:"a" default:"aa" help:"A is string"`
+	B bool   `env:"b" help:"B is bool"`
+	C int    `env:"c" help:"C is int"`
+}
+
+func (a *Beta) Name() string { return "BETA" }
+func (a *Beta) Start() func(ctx context.Context) {
+	log.Println("beta: init")
+	time.Sleep(time.Second)
+	var count int
+
 	return func(ctx context.Context) {
-		<-ctx.Done()
+		log.Println("beta: running")
+		for {
+			time.Sleep(time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				count++
+				log.Println("beta: sleep", count)
+			}
+		}
 	}
 }
 
-func (a *Ab) Function() func(ctx context.Context) {
+type Gamma struct {
+	A string `env:"a" default:"aa" help:"A is string"`
+	B bool   `env:"b" help:"B is bool"`
+	C int    `env:"c" help:"C is int"`
+}
+
+func (a *Gamma) Closure() func(ctx context.Context) {
+	log.Println("closure: init")
 	time.Sleep(time.Second * 2)
+
 	return func(ctx context.Context) {
 		<-ctx.Done()
+		log.Println("closure: done")
 	}
 }
 
-func (a *Ab) Param(param string) env.GracefulFunc {
-	go func() {
-		// note: with params, they must be wrapped or they do not advance
-		// until their function completes and returns the GracefulFunc
-		time.Sleep(time.Second)
-	}()
-	return func(ctx context.Context) {
-		<-ctx.Done()
-	}
+func (a *Gamma) Basic(ctx context.Context) {
+	log.Println("basic: init")
+	time.Sleep(time.Second * 2)
+
+	<-ctx.Done()
+	log.Println("basic: done")
 }
 
-func (a *Ab) Params(param string) func(ctx context.Context) {
+func (a *Gamma) Param1(zzz time.Duration) func(ctx context.Context) {
+	log.Println("Param1: init")
 	go func() {
 		// note: with params, they must be wrapped or they do not advance
-		// until their function completes and returns the GracefulFunc
-		time.Sleep(time.Second * 3)
+		// until their function completes which makes them lock-step ordered
+		time.Sleep(zzz)
 	}()
 	return func(ctx context.Context) {
 		<-ctx.Done()
+		log.Print("Param1: done")
+
 	}
 }
 
@@ -109,24 +134,9 @@ func (a *Ab) Params(param string) func(ctx context.Context) {
 
 */
 
-func sample() env.GracefulFunc {
+func sample1() func(ctx context.Context) {
 	time.Sleep(time.Second * 1)
-	return func(ctx context.Context) {
-		<-ctx.Done()
-	}
-}
-
-func sample1(ctx context.Context) {
-	time.Sleep(time.Second * 2)
-	<-ctx.Done()
-}
-
-func sample2(param ...int) env.GracefulFunc {
-	go func() {
-		// note: with params, they must be wrapped or they do not advance
-		// until their function completes and returns the GracefulFunc
-		time.Sleep(time.Second)
-	}()
+	log.Println("sample: 1!")
 	return func(ctx context.Context) {
 		<-ctx.Done()
 	}
@@ -141,50 +151,45 @@ func sample2(param ...int) env.GracefulFunc {
 
 func TestShutdown(t *testing.T) {
 
-	var cfg1 Ab
-	var cfg2 Xy
-
+	var alpha Alpha
 	env.Env()
-	env.Init(&cfg1, &cfg2)
+	env.Init(&alpha)
+	env.Summary(&alpha)
 	defer env.Shutdown()
 
-	env.Summary(&cfg1, &cfg2)
-	env.Manage(&cfg1) // cfg.Start() GracefulFunc
+	log.Println("bootstrap: begin")
+	time.Sleep(time.Second)
+	log.Println("bootstrap: finish")
 
 	env.Ready()
+	log.Println("exit: press ^C when ready")
 
 }
-func TestReadyStop(t *testing.T) {
 
-	var cfg Ab
-	cfg.A = "A"
+func TestGraceful(t *testing.T) {
 
-	env.Init(&cfg)
-	env.Summary(&cfg)
+	var alpha Alpha
+	alpha.A = "A"
 
-	log.Println("test: start/run all inits")
-	env.Manage(&cfg)                           // cfg.Start() GracefulFunc
-	env.Manage(cfg.Starter, "starter")         // cfg func GracefulFunc
-	env.Manage(cfg.Param("param"), "param")    // cfg func(param) GracefulFunc
-	env.Manage(cfg.Params("params"), "params") // cfg func(param) func(ctx context.Context)
+	var beta Beta
+	var gamma Gamma
 
-	env.Manage(sample, "sample")       // func GracefulFunc
-	env.Manage(sample1, "sample1")     // GracefulFunc
-	env.Manage(sample2(42), "sample2") // func(param) GracefulFunc
+	env.Init(&alpha)
+	env.Summary(&alpha)
+
+	log.Println("bootstrap: begin")
+	env.NewExpire("/tmp/excite") // use defaults
+	env.Manager(gamma.Param1(time.Second * 3))
+	env.Manager(&alpha)
+	env.Manager(&beta)
+	env.Manager(gamma.Basic)
+	env.Manager(gamma.Closure)
+	env.Manager(sample1)
+	log.Println("bootstrap: finish")
 
 	env.Ready()
-	for i := 0; i < 3; i++ {
-		log.Println("test: ...")
-	}
+	log.Println("exit: stop in 2 seconds")
+	time.Sleep(time.Second * 3)
 
 	env.Stop()
 }
-
-// func TestWaitCalculation(t *testing.T) {
-
-// 	checkOn := time.Hour
-// 	t.Log(time.Now().Format(time.RFC3339))
-// 	t.Log(time.Now().Add(checkOn).Sub(time.Now().Add(checkOn / 2).Round(checkOn)))
-// 	t.Log(time.Now().Add(checkOn / 2).Round(checkOn).Sub(time.Now()))
-
-// }

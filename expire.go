@@ -11,28 +11,53 @@ import (
 
 // Expire is an file expiration manager
 type Expire struct {
-	CheckOn time.Duration   // default hourly
-	report  bool            // report what was deleted
+	CheckOn time.Duration   // frequency of checks (default: hourly)
+	report  bool            // report what was deleted (default: off)
 	path    []string        // directory targets
-	age     []time.Duration // default daily
+	age     []time.Duration // max age allowed (default: daily)
 }
 
-// NewExpire configurator will apply default settings
-// and configure path items when provided
-func NewExpire(path ...string) *Expire {
+// NewExpire is an Expire wrapper that will create and start a file expiration
+// manger under env.Manager control using default values applied to the direcory
+// paths that are passed as paramaters.
+//
+// Configure *Expire directly when custom settings are desired.
+func NewExpire(path ...string) {
 
 	expire := new(Expire)
 	for i := range path {
 		expire.Add(path[i], 0)
 	}
+	Manager(expire)
 
-	return expire
 }
 
-// Report toggles expiratin reporting on/off and returns new current setting; default off
-func (ex *Expire) Report() bool { ex.report = !ex.report; return ex.report }
+// Start expire service manger to check for expired files periodically
+// based on expire.CheckOn setting (default: check hourly, expire after 24hr)
+func (ex *Expire) Start(ctx context.Context) {
 
-// Add will register a directory path and file age timeframe
+	if ex.CheckOn == 0 { // use failsafe
+		ex.CheckOn = time.Hour
+	}
+	ex.Expire()
+
+	timer := time.NewTicker(ex.CheckOn)
+	for {
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+			ex.Expire()
+		}
+	}
+
+}
+
+// Report toggles expiration reporting on/off (default: off)
+func (ex *Expire) Report() *Expire { ex.report = !ex.report; return ex }
+
+// Add will register a directory path with customized age timeframe
 func (ex *Expire) Add(path string, age time.Duration) *Expire {
 
 	if len(path) > 0 {
@@ -65,40 +90,4 @@ func (ex *Expire) Expire() *Expire {
 	}
 
 	return ex
-
-}
-
-// Start expire service checks for expired files periodically at the beginning
-// of each CheckOn period; graceful
-func (ex *Expire) Start(ctx context.Context) {
-
-	if ex.CheckOn == 0 {
-		ex.CheckOn = time.Hour
-	}
-
-	go func() {
-		timer := time.NewTimer(time.Now().Add(ex.CheckOn / 2).Round(ex.CheckOn).Sub(time.Now()))
-		for {
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-				ex.Expire()
-				return
-			}
-		}
-	}()
-
-	timer := time.NewTicker(ex.CheckOn)
-	for {
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-			ex.Expire()
-		}
-	}
-
 }
