@@ -27,6 +27,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
@@ -137,11 +138,16 @@ func Manager(g interface{}) {
 
 	case reflect.TypeOf(g).Kind() == reflect.Func:
 
-		// convert insite/pkg/env_test.(*Gamma).Basic-fm to 'basic'
-		name := runtime.FuncForPC(reflect.ValueOf(g).Pointer()).Name() // identify func by name
-		name = strings.Split(name, ".")[strings.Count(name, ".")]      // extract last segment
-		name = strings.TrimSuffix(name, "-fm")                         // clean up tail
-		name = strings.ToLower(name)                                   // lowercase
+		// struct:  convert insite/pkg/env_test.(*Gamma).Basic-fm to 'basic'
+		// package: insite/pkg/server.Start.func3 to 'server'
+		name := filepath.Base(runtime.FuncForPC(reflect.ValueOf(g).Pointer()).Name()) // identify func by name
+		if strings.Contains(name, "*") {
+			name = strings.Split(name, ".")[strings.Count(name, ".")] // extract last segment
+			name = strings.TrimSuffix(name, "-fm")                    // clean up tail
+		} else {
+			name = strings.Split(name, ".")[0]
+		}
+		name = strings.ToLower(name)
 
 		switch g.(type) {
 		case func() func(ctx context.Context): // func() func(ctx context.Context)
