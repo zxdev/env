@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -31,6 +32,7 @@ type graceful struct {
 	cancel                  context.CancelFunc
 	silent                  bool
 	name                    string
+	stop, wait, bye         atomic.Bool
 }
 
 // NewGraceful configurator returns *graceful and starts the shutdown controller to
@@ -49,15 +51,14 @@ func NewGraceful() *graceful {
 	go func(g *graceful) {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-		for {
-			select {
-			case <-g.ctx.Done():
-				return
-			case <-sig:
-				signal.Stop(sig)
-				g.Stop()
-			}
+		select {
+		case <-g.ctx.Done():
+		case j := <-sig:
+			log.Printf("%s: %s shutdown", g.name, j)
+			signal.Stop(sig)
+			g.cancel()
 		}
+		g.Wait()
 	}(g)
 
 	return g
@@ -88,29 +89,34 @@ func (g *graceful) Done() {
 }
 
 // Wait blocks on the graceful context and waits for bootstaps to terminate to cleanly exit
-func (g *graceful) Wait() { g.bye() }
+func (g *graceful) Wait() {
+	if g.wait.CompareAndSwap(false, true) { // ignore recurrent calls
+
+		g.wgBootstrap.Wait() // allow bootstraps to complete
+		<-g.ctx.Done()       // block and wait on context
+		g.wgShutdown.Wait()  // allow shutdowns to complete
+
+		if g.bye.CompareAndSwap(false, true) { // ignore recurrent calls
+			if !g.silent {
+				log.Printf("|%s|", strings.Repeat("-", 40))
+				log.Printf("%s: bye", g.name)
+				log.Printf("|%s|", strings.Repeat("-", 40))
+			}
+			time.Sleep(time.Millisecond * 250)
+			os.Exit(0)
+		}
+	}
+}
 
 // Wait cancels the graceful context and waits for bootstaps to terminate to cleanly exit
 func (g *graceful) Stop() {
-	if !g.silent {
-		log.Printf("%s: shutdown initiated", g.name)
+	if g.stop.CompareAndSwap(false, true) {
+		if !g.silent {
+			log.Printf("%s: shutdown initiated", g.name)
+		}
+		g.cancel() // signal manager shutdowns
+		g.Wait()
 	}
-	g.cancel()
-	g.bye()
-}
-
-// bye blocks on graceful context and waits for bootstaps to terminate to cleanly exit
-func (g *graceful) bye() {
-	g.wgBootstrap.Wait() // allow bootstraps to complete
-	<-g.ctx.Done()       // block and wait on context
-	g.wgShutdown.Wait()  // allow shutdowns to complete
-	if !g.silent {
-		time.Sleep(time.Millisecond * 250) // slight pause
-		log.Printf("|%s|", strings.Repeat("-", 40))
-		log.Printf("%s: bye", g.name)
-		log.Printf("|%s|", strings.Repeat("-", 40))
-	}
-	os.Exit(0)
 }
 
 // Manager graceful controller configurator; structs with Start methods
