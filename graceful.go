@@ -108,7 +108,7 @@ func (g *graceful) Wait() {
 	}
 }
 
-// Wait cancels the graceful context and waits for bootstaps to terminate to cleanly exit
+// Stop cancels the graceful context and calls graceful.Wait
 func (g *graceful) Stop() {
 	if g.stop.CompareAndSwap(false, true) {
 		if !g.silent {
