@@ -20,7 +20,7 @@ func (s *Sample) Start(ctx context.Context, wg *sync.WaitGroup) {
 
 type params struct {
 	Name  string `env:"N,require,order,environ" help:"a name to use"`
-	Flag  bool   `default:"on" help:"a flag setting"`
+	Flag  bool   `default:"on" hidden:"[redacted]" help:"a flag setting"`
 	small int    // not parsed or reported in Summary
 }
 

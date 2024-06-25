@@ -133,6 +133,14 @@ func (e *env) Configure(cfg ...interface{}) *Env {
 				if !v.Field(i).CanSet() || len(tag) == 0 || tag == "-" {
 					continue
 				}
+				if tag, ok = v.Type().Field(i).Tag.Lookup("hidden"); ok {
+					if len(tag) == 0 {
+						tag = "***"
+					}
+					log.Printf("  %-15s| %v", strings.ToLower(v.Type().Field(i).Name), tag)
+					continue
+				}
+
 				log.Printf("  %-15s| %v", tag, v.Field(i))
 			}
 			log.Printf("|%s|", strings.Repeat("-", 40))
