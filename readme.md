@@ -99,27 +99,4 @@ A summary log reports the struct values and integrates with other env system. If
 * env.Persist - persist simple data to diks
 * env.Shutdown - shutdown, not necessary with graceful controller
 
-See the ```example/main.go```for a sample use case.
-
-```golang
-
-// NewEnv that sets up the basic envrionment paths and
-// calls the Parser to process the struct tag fields and
-// populates any interfaces that are provided
-//
-
-
-type params struct {
-	Action      string `env:"A,require,order" help:"a name to use"`
-	Secret    string `env:"hidden" help:"a secret"`
-	Flag      bool   `default:"on"  help:"a flag setting"`
-	Number    int    `default:"5" help:"a number"`
-	timestamp int64  // not parsed or reported in Summary
-}
-
-func main() {
-	var param params
-	paths := env.NewEnv(&var)
-}
-
-```
+See the ```example/main.go```for a sample use cases.
