@@ -24,5 +24,5 @@ func Shutdown(ctx context.Context, onInterrupt func()) {
 	if onInterrupt == nil {
 		os.Exit(0)
 	}
-	do()
+
 }
