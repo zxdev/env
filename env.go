@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -16,56 +17,67 @@ var (
 	Description    string
 )
 
-// directory paths
-type paths struct {
-	Etc, Srv, Var, Tmp string
-}
-
-type env bool
-
 // NewEnv that sets up the basic envrionment paths and
 // calls the Parser to process the struct tag fields and
 // populates any interfaces that are provided
 //
-//	type params struct {
-//
+//	tags
 //		env:"alias,order,require,environ,hidden"
 //		help:"description"
-//		default:"value"
+//		default:"value" (bool, string, int)
 //
-//	Action string `env:"require" default:"server" help:"action [server|client]"`
-//	}
-//
-//	supports bool, string, int types
-func NewEnv(cfg ...interface{}) *paths {
-	var e env
-	return e.Configure(cfg...)
+//	Action string `env:"A,require" default:"server" help:"action [server|client]"`
+func NewEnv(cfg ...interface{}) (path struct {
+	Etc, Srv, Var, Tmp string
+}) {
+	return Configure(cfg...)
 }
 
-// NewEnvSilent sets up a silent environment
-func NewEnvSilent(cfg ...interface{}) *paths {
-	var e env = true // silent
-	return e.Configure(cfg...)
+// Options for env.Configure
+//
+//	Silent: log configuration output
+//	NoHelp: silences the help output
+//	SetENV: set KEY=VALUE in environemnt
+type Options struct {
+	Silent bool // silence log configuration output
+	NoHelp bool // silence help output
+	SetENV bool // set KEY=VALUE in environment
 }
 
-// Configure sets up the basic environment
-func (e *env) Configure(cfg ...interface{}) *paths {
+// Configure sets up the basic environment and returns environment paths;
+// pass Options as the first item to set or specify custom configuration
+// options to silence log and help output and env.Options.M map populates,
+// struct initially, overloaded by environment vars, overloaded by default
+// tag, that is then overloaded by command line swithches, in this order
+func Configure(cfg ...interface{}) (path struct {
+	Etc, Srv, Var, Tmp string
+}) {
 
-	var env paths
+	var opt Options
+	switch c := cfg[0].(type) {
+	case Options:
+		opt = c
+		cfg = cfg[1:]
+	case *Options:
+		opt = *c
+		cfg = cfg[1:]
+	}
+
+	//var env paths
 	var name string
 	switch runtime.GOOS {
 	case "linux": // production
-		env.Etc = "/etc"
-		env.Srv = "/srv"
-		env.Var = "/var"
-		env.Tmp = "/tmp"
+		path.Etc = "/etc"
+		path.Srv = "/srv"
+		path.Var = "/var"
+		path.Tmp = "/tmp"
 		name = filepath.Base(os.Args[0])
 
 	default: // development
-		env.Etc = "_dev/etc"
-		env.Srv = "_dev/srv"
-		env.Var = "_dev/var"
-		env.Tmp = "_dev/tmp"
+		path.Etc = "_dev/etc"
+		path.Srv = "_dev/srv"
+		path.Var = "_dev/var"
+		path.Tmp = "_dev/tmp"
 		name = "development"
 	}
 
@@ -96,8 +108,61 @@ func (e *env) Configure(cfg ...interface{}) *paths {
 			if len(Description) > 0 {
 				fmt.Printf("%s\n\n", Description)
 			}
-			for i := range cfg {
-				e.helpTag(cfg[i])
+
+			if !opt.NoHelp {
+				for i := range cfg {
+
+					var tag string
+					var ok bool
+
+					v := reflect.Indirect(reflect.ValueOf(cfg[i]))
+					for j := 0; j < v.NumField(); j++ {
+
+						// name field
+						tag, ok = v.Type().Field(j).Tag.Lookup("name")
+						if !ok {
+							tag = strings.ToLower(v.Type().Field(j).Name)
+						}
+						if !v.Field(j).CanSet() || len(tag) == 0 {
+							continue // unexported
+						}
+
+						var env struct{ Order, Require, Environ, Hidden, Alias string }
+						if opts, ok := v.Type().Field(j).Tag.Lookup("env"); ok {
+							if opts == "-" {
+								continue
+							}
+							for _, v := range strings.Split(opts, ",") {
+
+								switch v {
+								case "order":
+									env.Order = "o"
+								case "require":
+									env.Require = "r"
+								case "environ":
+									env.Environ = "e"
+								case "hidden":
+									env.Hidden = "*"
+								default:
+									env.Alias = v
+								}
+							}
+						}
+						// fmt.Printf(" %-15s", tag)
+						fmt.Printf(" %-15s %-5s [%-1s%-1s%-1s%-1s] ",
+							tag, env.Alias, env.Order, env.Require, env.Environ, env.Hidden)
+
+						// default field
+						tag, _ = v.Type().Field(i).Tag.Lookup("default")
+						fmt.Printf("default:%-10s ", tag)
+
+						// help field
+						tag, _ = v.Type().Field(i).Tag.Lookup("help")
+						fmt.Println(tag)
+
+					}
+
+				}
 			}
 			fmt.Println()
 			os.Exit(0)
@@ -105,11 +170,10 @@ func (e *env) Configure(cfg ...interface{}) *paths {
 	}
 
 	if len(cfg) > 0 {
-		var p Parser
-		p.Do(cfg...)
+		opt.parse(cfg...)
 	}
 
-	if !*e {
+	if !opt.Silent {
 
 		log.Printf("|%s|", strings.Repeat("-", 40))
 		log.Printf("| %s %s event log |", strings.ToUpper(filepath.Base(os.Args[0])), strings.Repeat(":", 27-len(filepath.Base(os.Args[0]))))
@@ -127,11 +191,14 @@ func (e *env) Configure(cfg ...interface{}) *paths {
 				if tag, ok = v.Type().Field(i).Tag.Lookup("name"); !ok {
 					tag = strings.ToLower(v.Type().Field(i).Name)
 				}
-				if !v.Field(i).CanSet() || len(tag) == 0 || tag == "-" {
-					continue
+				if !v.Field(i).CanSet() || len(tag) == 0 {
+					continue // unexported
 				}
-				if hidden, ok := v.Type().Field(i).Tag.Lookup("env"); ok {
-					if strings.Contains(hidden, "hidden") {
+				if opts, ok := v.Type().Field(i).Tag.Lookup("env"); ok {
+					if opts == "-" {
+						continue
+					}
+					if strings.Contains(opts, "hidden") {
 						log.Printf(" %-15s| <hidden>", strings.ToLower(v.Type().Field(i).Name))
 						continue
 					}
@@ -143,68 +210,183 @@ func (e *env) Configure(cfg ...interface{}) *paths {
 
 	}
 
-	return &env
+	return
 }
 
-// helpTag displays help tags when present with struct field
-func (e *env) helpTag(cfg interface{}) {
+// parse will set the speficied cfg struct field value according to the tag:env and
+// tag:default provided in the struct, and will overload in the following order:
+//
+//	tag:default, conf k:v sets, os.Args, os.Environ
+//
+// final values in the key:value os.Environment table.
+//
+//	env: alias,require,order,environ field flags
+//	supports: string, bool, int/64, uint/64 types
+func (p *Options) parse(cfg ...interface{}) {
 
-	// defer func() {
-	// 	if recover() != nil {
-	// 		fmt.Fprintln(os.Stderr, "\nhelp: interface misconfigured")
-	// 		os.Exit(0)
-	// 	}
-	// }()
+	// overlaoding order
+	// tag:default, conf, os.Args, ENV=
 
-	var tag string
-	var ok bool
+	var m = make(map[string]string)
 
-	v := reflect.Indirect(reflect.ValueOf(cfg))
-	for i := 0; i < v.NumField(); i++ {
-
-		// if v.Field(i).Type().Kind() == reflect.Struct {
-		// 	e.helpTag(v.Field(i).Interface())
-		// 	continue
-		// }
-
-		// name field
-		tag, ok = v.Type().Field(i).Tag.Lookup("name")
-		if !ok {
-			tag = strings.ToLower(v.Type().Field(i).Name)
-		}
-		if !v.Field(i).CanSet() || len(tag) == 0 || tag == "-" {
-			continue
-		}
-
-		fmt.Printf(" %-15s", tag)
-
-		var env struct{ Order, Require, Environ, Hidden, Alias string }
-		if tag, ok := v.Type().Field(i).Tag.Lookup("env"); ok {
-			for _, v := range strings.Split(tag, ",") {
-				switch v {
-				case "order":
-					env.Order = "o"
-				case "require":
-					env.Require = "r"
-				case "environ":
-					env.Environ = "e"
-				case "hidden":
-					env.Hidden = "*"
-				default:
-					env.Alias = v
+	// processes os.Args and build/overload a map[string]string; support for single
+	// reference switches -a aa -b
+	for i := 0; i < len(os.Args); i++ {
+		if strings.HasPrefix(os.Args[i], "-") {
+			key := strings.TrimLeft(os.Args[i], "-")
+			switch {
+			case strings.Contains(key, "="):
+				s := strings.SplitN(key, "=", 2)
+				m[s[0]] += s[1]
+			case strings.Contains(key, ":"):
+				s := strings.SplitN(key, ":", 2)
+				m[s[0]] += s[1]
+			default:
+				i++
+				if i < len(os.Args) {
+					if !strings.HasPrefix(os.Args[i], "-") {
+						m[key] = os.Args[i]
+					} else {
+						i--
+					}
 				}
 			}
 		}
-		fmt.Printf("%-5s [%-1s%-1s%-1s%-1s] ",
-			env.Alias, env.Order, env.Require, env.Environ, env.Hidden)
+	}
 
-		// default field
-		tag, _ = v.Type().Field(i).Tag.Lookup("default")
-		fmt.Printf("default:%-10s ", tag)
+	// process interfaces
+	for i := range cfg {
 
-		// help field
-		tag, _ = v.Type().Field(i).Tag.Lookup("help")
-		fmt.Println(tag)
+		var order = 1
+
+		v := reflect.Indirect(reflect.ValueOf(cfg[i]))
+		if v.Type().Kind() != reflect.Struct {
+			fmt.Fprintf(os.Stderr, "%s: %s interface misconfigured",
+				filepath.Base(os.Args[0]), reflect.TypeOf(cfg[i]).Elem().Name())
+			os.Exit(1)
+		}
+
+		// process fields
+		for j := 0; j < v.NumField(); j++ {
+
+			// get field name
+			name := strings.ToLower(v.Type().Field(j).Name)
+			if !v.Field(j).CanSet() || len(name) == 0 {
+				continue
+			}
+
+			var value string
+			var status bool
+			var env struct {
+				Order, Require, Environ bool
+				Alias                   string
+			}
+
+			// process tag:env
+			if tag, ok := v.Type().Field(j).Tag.Lookup("env"); ok {
+				if tag == "-" {
+					continue // ignore
+				}
+				for _, v := range strings.Split(tag, ",") {
+					switch v {
+					case "order":
+						env.Order = true
+					case "require":
+						env.Require = true
+					case "environ":
+						env.Environ = true
+					// case "hidden":
+					default:
+						env.Alias = v
+					}
+
+				}
+			}
+
+			// apply tag:default values; when defined
+			if val, ok := v.Type().Field(j).Tag.Lookup("default"); ok {
+				value, status = p.setField(v.Field(j), val)
+			}
+
+			// overload with conf/args values; when present
+			if val, ok := m[name]; ok {
+				value, status = p.setField(v.Field(j), val)
+			}
+			if val, ok := m[env.Alias]; ok {
+				value, status = p.setField(v.Field(j), val)
+			}
+
+			// overload with os.Environment table values; when present
+			if val, ok := os.LookupEnv(strings.ToUpper(name)); ok {
+				value, status = p.setField(v.Field(j), val)
+			}
+
+			// check for ordering
+			if env.Order && len(os.Args) > order && !strings.HasPrefix(os.Args[order], "-") {
+				// assumption is that we take args in order present to populate
+				// the structure without using name flags {1} {2} {3} -blah
+				value, status = p.setField(v.Field(j), os.Args[order])
+				order++
+			}
+
+			// check for requiirement
+			if env.Require && !status {
+				fmt.Fprintf(os.Stderr, "%s: missing required (%s) parameter\n",
+					filepath.Base(os.Args[0]), strings.ToLower(v.Type().Field(j).Name))
+				os.Exit(0)
+			}
+
+			// mirror field NAME:VALUE from struct to the os.Environment table
+			if status && (p.SetENV || env.Environ) {
+				os.Setenv(name, value)
+			}
+
+		}
 
 	}
+}
+
+// setField supports the string, bool, int, int64, uint, uint64 types as
+// well as types derived from them (eg. time.Duration is int64); otherwise
+// the field is ignored as nothing can be set
+func (p *Options) setField(v reflect.Value, s string) (string, bool) {
+
+	var ok bool
+
+	switch v.Kind() {
+	case reflect.String:
+		v.SetString(s)
+		ok = len(s) > 0
+
+	case reflect.Int, reflect.Int64:
+		n, _ := strconv.ParseInt(s, 10, 0)
+		v.SetInt(n)
+		ok = len(s) > 0 // accept 0 as valid
+
+	case reflect.Uint, reflect.Uint64:
+		n, _ := strconv.ParseUint(s, 10, 0)
+		v.SetUint(n)
+		ok = len(s) > 0 // accept 0 as valid
+
+	case reflect.Bool:
+		var value bool
+		switch strings.ToLower(s) {
+		//case "off", "no", "false", "0":
+		case "on", "yes", "ok", "true", "1":
+			value = true
+			fallthrough
+		default:
+			v.SetBool(value)
+			ok = true
+		}
+
+		//default:
+		// unsupported, no-op
+	}
+
+	if !ok {
+		s = ""
+	}
+
+	return s, ok
 }

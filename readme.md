@@ -93,10 +93,8 @@ A summary log reports the struct values and integrates with other env system. If
 
 * env.Dir - ensure a directory exists
 * env.Expire - expiration file manager with graceful interface support
-* env.Fork - process fork manager
 * env.Graceful - graceful interface startup/shutdown controller
-* env.Lock - process file lock (in use detection)
-* env.Persist - persist simple data to diks
+* env.Lock - process file lock (simple in use detection)
+* env.Persist - persist and resume with data on disk
 * env.Shutdown - shutdown, not necessary with graceful controller
 
-See the ```example/main.go```for a sample use cases.

@@ -8,8 +8,9 @@ import (
 )
 
 // Shutdown blocks on context.Context or signal.Notify; only use this
-// when env.Graceful is not used; exit will call os.Exit(0)
-func Shutdown(ctx context.Context, exit bool) {
+// when env.Graceful is not used; onInterrupt is func that will execute
+// when an interrupt if received, when nil just exits
+func Shutdown(ctx context.Context, onInterrupt func()) {
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
@@ -20,7 +21,8 @@ func Shutdown(ctx context.Context, exit bool) {
 		signal.Stop(sig)
 	}
 
-	if exit {
+	if onInterrupt == nil {
 		os.Exit(0)
 	}
+	do()
 }
