@@ -55,11 +55,11 @@ func Configure(cfg ...interface{}) (path struct {
 
 	var opt Options
 	switch c := cfg[0].(type) {
-	case Options:
-		opt = c
-		cfg = cfg[1:]
 	case *Options:
 		opt = *c
+		cfg = cfg[1:]
+	case Options: // bonehead
+		opt = c
 		cfg = cfg[1:]
 	}
 
@@ -72,6 +72,9 @@ func Configure(cfg ...interface{}) (path struct {
 		path.Var = "/var"
 		path.Tmp = "/tmp"
 		name = filepath.Base(os.Args[0])
+		// this can be overwritten in production environments
+		// using the build in commandline log:on functionality
+		log.SetFlags(0) // Ldate=1 Ltime=2
 
 	default: // development
 		path.Etc = "_dev/etc"
@@ -252,6 +255,17 @@ func (p *Options) parse(cfg ...interface{}) {
 				}
 			}
 		}
+	}
+
+	// command line log timestamp controller
+	// to turn on/off the log timestamp headers
+	switch m["log"] {
+	case "on", "yes", "true":
+		log.SetFlags(log.Ldate | log.Ltime)
+		delete(m, "log")
+	case "off", "no", "false":
+		log.SetFlags(0)
+		delete(m, "log")
 	}
 
 	// process interfaces
