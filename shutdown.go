@@ -21,8 +21,10 @@ func Shutdown(ctx context.Context, onInterrupt func()) {
 		signal.Stop(sig)
 	}
 
-	if onInterrupt == nil {
-		os.Exit(0)
+	if onInterrupt =! nil {
+		onInterrupt()
 	}
+	
+	os.Exit(0)
 
 }
