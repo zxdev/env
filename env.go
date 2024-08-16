@@ -17,6 +17,11 @@ var (
 	Description    string
 )
 
+// Path type returned by NewENV and Configure
+type Path struct {
+	Etc, Srv, Var, Tmp string
+}
+
 // NewEnv that sets up the basic envrionment paths and
 // calls the Parser to process the struct tag fields and
 // populates any interfaces that are provided
@@ -27,9 +32,7 @@ var (
 //		default:"value" (bool, string, int)
 //
 //	Action string `env:"A,require" default:"server" help:"action [server|client]"`
-func NewEnv(cfg ...interface{}) (path struct {
-	Etc, Srv, Var, Tmp string
-}) {
+func NewEnv(cfg ...interface{}) (path *Path) {
 	return Configure(cfg...)
 }
 
@@ -49,9 +52,7 @@ type Options struct {
 // options to silence log and help output and env.Options.M map populates,
 // struct initially, overloaded by environment vars, overloaded by default
 // tag, that is then overloaded by command line swithches, in this order
-func Configure(cfg ...interface{}) (path struct {
-	Etc, Srv, Var, Tmp string
-}) {
+func Configure(cfg ...interface{}) (path *Path) {
 
 	var opt Options
 	switch c := cfg[0].(type) {
@@ -63,24 +64,27 @@ func Configure(cfg ...interface{}) (path struct {
 		cfg = cfg[1:]
 	}
 
-	//var env paths
 	var name string
 	switch runtime.GOOS {
 	case "linux": // production
-		path.Etc = "/etc"
-		path.Srv = "/srv"
-		path.Var = "/var"
-		path.Tmp = "/tmp"
+		path = &Path{
+			Etc: "/etc",
+			Srv: "/srv",
+			Var: "/var",
+			Tmp: "/tmp",
+		}
 		name = filepath.Base(os.Args[0])
 		// this can be overwritten in production environments
 		// using the build in commandline log:on functionality
 		log.SetFlags(0) // Ldate=1 Ltime=2
 
 	default: // development
-		path.Etc = "_dev/etc"
-		path.Srv = "_dev/srv"
-		path.Var = "_dev/var"
-		path.Tmp = "_dev/tmp"
+		path = &Path{
+			Etc: "_dev/etc",
+			Srv: "_dev/srv",
+			Var: "_dev/var",
+			Tmp: "_dev/tmp",
+		}
 		name = "development"
 	}
 
@@ -156,11 +160,11 @@ func Configure(cfg ...interface{}) (path struct {
 							tag, env.Alias, env.Order, env.Require, env.Environ, env.Hidden)
 
 						// default field
-						tag, _ = v.Type().Field(i).Tag.Lookup("default")
+						tag, _ = v.Type().Field(j).Tag.Lookup("default")
 						fmt.Printf("default:%-10s ", tag)
 
 						// help field
-						tag, _ = v.Type().Field(i).Tag.Lookup("help")
+						tag, _ = v.Type().Field(j).Tag.Lookup("help")
 						fmt.Println(tag)
 
 					}
