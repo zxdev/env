@@ -55,13 +55,15 @@ type Options struct {
 func Configure(cfg ...interface{}) (path *Path) {
 
 	var opt Options
-	switch c := cfg[0].(type) {
-	case *Options:
-		opt = *c
-		cfg = cfg[1:]
-	case Options: // bonehead
-		opt = c
-		cfg = cfg[1:]
+	if len(cfg) > 0 {
+		switch c := cfg[0].(type) {
+		case *Options:
+			opt = *c
+			cfg = cfg[1:]
+		case Options: // bonehead
+			opt = c
+			cfg = cfg[1:]
+		}
 	}
 
 	var name string
@@ -116,7 +118,7 @@ func Configure(cfg ...interface{}) (path *Path) {
 				fmt.Printf("%s\n\n", Description)
 			}
 
-			if !opt.NoHelp {
+			if !opt.NoHelp && len(cfg) > 0 {
 				for i := range cfg {
 
 					var tag string
