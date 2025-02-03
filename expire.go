@@ -18,35 +18,52 @@ import (
 
 */
 
+type expire struct {
+	Path string
+	TTL  time.Duration
+}
+
 // Expire struct
 type Expire struct {
 	CheckOn time.Duration // frequency of checks (default: hourly)
-	item    []struct {    // directory targets
-		Path string
-		TTL  time.Duration
-	}
-	silent bool
+	item    []expire
+	silent  bool
 }
 
 // Silent flag toggle for env.Expire, writes logs on os.Stderr (default: on)
 func (ex *Expire) Silent() *Expire { ex.silent = !ex.silent; return ex }
 
-// Add will register a directory/path with customized age timeframe (default: 24hr expiration)
-func (ex *Expire) Add(ttl *time.Duration, path ...string) *Expire {
+// Add will register a directory/path with customized age timeframe
+// and supports various ttl inputs
+//
+//	nil          default 24h
+//	string       "24h"
+//	int           hour * n
+//	time.Duration
+func (ex *Expire) Add(ttl interface{}, path ...string) *Expire {
 
-	if ttl == nil || *ttl == 0 {
-		ttl24hr := time.Hour
-		ttl = &ttl24hr // default
+	var exp time.Duration
+	switch d := ttl.(type) {
+	case nil:
+		exp = time.Hour * 24
+	case string:
+		exp, _ = time.ParseDuration(d)
+		if exp == 0 {
+			exp = time.Hour * 24
+		}
+	case int:
+		exp = time.Hour * time.Duration(d)
+	case *time.Duration:
+		exp = *d
+	case time.Duration:
+		exp = d
 	}
 
 	for i := range path {
 		if len(path[i]) > 0 {
-			ex.item = append(ex.item, struct {
-				Path string
-				TTL  time.Duration
-			}{path[i], *ttl})
+			ex.item = append(ex.item, expire{path[i], exp})
 			if !ex.silent {
-				log.Printf("expire: add %s ttl[%s]", filepath.Base(path[i]), *ttl)
+				log.Printf("expire: add %s ttl[%s]", filepath.Base(path[i]), exp)
 			}
 		}
 	}

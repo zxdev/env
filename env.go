@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -45,6 +46,7 @@ type Options struct {
 	Silent bool // silence log configuration output
 	NoHelp bool // silence help output
 	SetENV bool // set KEY=VALUE in environment
+	NoExit bool // return nil instead of os.Exit(0) for version,help
 }
 
 // Configure sets up the basic environment and returns environment paths;
@@ -108,6 +110,9 @@ func Configure(cfg ...interface{}) (path *Path) {
 
 			fmt.Printf("\n %-s\n%s\n version %s\n build   %s\n\n",
 				name, strings.Repeat("-", n+2), Version, Build)
+			if opt.NoExit {
+				return nil
+			}
 			os.Exit(0)
 
 		case "help":
@@ -174,6 +179,9 @@ func Configure(cfg ...interface{}) (path *Path) {
 				}
 			}
 			fmt.Println()
+			if opt.NoExit {
+				return nil
+			}
 			os.Exit(0)
 		}
 	}
@@ -184,12 +192,14 @@ func Configure(cfg ...interface{}) (path *Path) {
 
 	if !opt.Silent {
 
+		usr, _ := user.Current()
+
 		log.Printf("|%s|", strings.Repeat("-", 40))
 		log.Printf("| %s %s event log |", strings.ToUpper(filepath.Base(os.Args[0])), strings.Repeat(":", 27-len(filepath.Base(os.Args[0]))))
 		log.Printf("|-----//o%s|", strings.Repeat("-", 32))
 		log.Printf("%s%s version", strings.Repeat(" ", 31-len(Version)), Version)
 		log.Printf("%s%s build", strings.Repeat(" ", 31-len(Build)), Build)
-		log.Printf("%spid %d", strings.Repeat(" ", 28), os.Getpid())
+		log.Printf(" %s%spid %d", usr.Username, strings.Repeat(" ", 27-len(usr.Username)), os.Getpid())
 		log.Printf("|-----//o%s|", strings.Repeat("-", 32))
 
 		var tag string
