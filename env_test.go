@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/zxdev/env"
+	"github.com/zxdev/env/v2"
 )
 
 func TestEnv(t *testing.T) {
