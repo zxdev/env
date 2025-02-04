@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -14,7 +15,7 @@ import (
 	expire.Add(nil,"my/expire/silent").Silent()
 	expire.Silent().Add(nil, "my/silent/everything")
 	...
-	graceful.Manager(&expire)
+	env.GraceInitContext(&expire.Start)
 
 */
 
@@ -25,10 +26,17 @@ type expire struct {
 
 // Expire struct
 type Expire struct {
-	CheckOn time.Duration // frequency of checks (default: hourly)
-	item    []expire
-	silent  bool
+	Freq   time.Duration // frequency of checks (default: hourly)
+	item   []expire
+	silent bool
 }
+
+// // NewExpire configurator
+// func NewExpire(ttl interface{}, path ...string) *Expire {
+// 	var exp Expire
+// 	exp.Add(ttl, path...)
+// 	exp.Expire()
+// }
 
 // Silent flag toggle for env.Expire, writes logs on os.Stderr (default: on)
 func (ex *Expire) Silent() *Expire { ex.silent = !ex.silent; return ex }
@@ -37,26 +45,21 @@ func (ex *Expire) Silent() *Expire { ex.silent = !ex.silent; return ex }
 // and supports various ttl inputs
 //
 //	nil          default 24h
-//	string       "24h"
-//	int           hour * n
-//	time.Duration
+//	int          n * hour
+//	string       "24h", "1h30m"
 func (ex *Expire) Add(ttl interface{}, path ...string) *Expire {
 
 	var exp time.Duration
 	switch d := ttl.(type) {
 	case nil:
 		exp = time.Hour * 24
+	case int:
+		exp = time.Hour * time.Duration(d)
 	case string:
 		exp, _ = time.ParseDuration(d)
 		if exp == 0 {
 			exp = time.Hour * 24
 		}
-	case int:
-		exp = time.Hour * time.Duration(d)
-	case *time.Duration:
-		exp = *d
-	case time.Duration:
-		exp = d
 	}
 
 	for i := range path {
@@ -72,21 +75,28 @@ func (ex *Expire) Add(ttl interface{}, path ...string) *Expire {
 }
 
 // Start expire service manger to check for expired files periodically
-// based on expire.CheckOn setting (default: check hourly, expire after 24hr)
-func (ex *Expire) Start(ctx context.Context) {
+// based on expire.Freq setting (default: check hourly, expire after 24hr)
+func (ex *Expire) Start(ctx context.Context, init *sync.WaitGroup) {
 
-	if ex.CheckOn == 0 { // use failsafe
-		ex.CheckOn = time.Hour
+	if ex.Freq == 0 { // use failsafe
+		ex.Freq = time.Hour
 	}
-	ex.Expire()
 
-	timer := time.NewTicker(ex.CheckOn)
+	ex.Expire()
+	init.Done()
+
+	var once bool
+	ticker := time.NewTicker(time.Until(time.Now().Add(ex.Freq).Truncate(ex.Freq)))
 	for {
 		select {
 		case <-ctx.Done():
-			timer.Stop()
+			ticker.Stop()
 			return
-		case <-timer.C:
+		case <-ticker.C:
+			if !once {
+				once = !once
+				ticker = time.NewTicker(ex.Freq)
+			}
 			ex.Expire()
 		}
 	}

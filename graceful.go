@@ -28,7 +28,7 @@ type graceful struct {
 	wgInit, wgShutdown *sync.WaitGroup
 	ctx                context.Context
 	cancel             context.CancelFunc
-	silent             bool
+	silent, frame      bool
 	exit               int
 	name               string
 	stop, wait, bye    atomic.Bool
@@ -63,80 +63,68 @@ func NewGraceful() *graceful {
 	return g
 }
 
-// GraceInit starts a func and expectes a non-blocking func
-// that exits when the init processes completes
+// GraceInit starts an initilization func
 //
-//	func (a *Action) Init00() {
-//		defer fmt.Println("init: complete")
-//	}
+//	non-blocking func() exits and then the init.Done() triggers to signal completion; while
+//	a blocking func(ctx,init) expectes init.Done() to trigger internally to signal completion
+//	and before blocking and waiting on a <-ctx.Done() to signal cleanup before exiting
 //
-// g.wgInit.Done() only triggers after the func returns
-// and init must complete before a shutdown request is honored
-func GraceInit(g *graceful, obj ...func()) *graceful {
+// these signatures confirm the ready state of the started process via grace.Done()
+//
+//	func() { return }
+//	func(context.Context, *sync.WaitGroup) { init.Done(); <-ctx.Done(); return }
+//
+// this signature can only confirm the process start since the ready state is indeterminate via grace.Done()
+//
+//	func(context.Context)
+func GraceInit(g *graceful, obj ...interface{}) *graceful {
 
 	if g == nil {
 		g = NewGraceful()
-	}
-
-	if !g.silent {
-		log.Printf("%s: grace init [%d]", g.name, len(obj))
+		log.Printf("grace: %s init [%d]", g.name, len(obj))
 	}
 
 	g.wgInit.Add(len(obj) + 1)
 	defer g.wgInit.Done()
 
 	for i := range obj {
+
 		g.wgShutdown.Add(1)
-		go func(i int) {
-			obj[i]()
-			g.wgInit.Done()
-			g.wgShutdown.Done()
-		}(i)
+		go func(obj interface{}, wgInit *sync.WaitGroup) {
+			defer g.wgShutdown.Done()
+			switch fxn := obj.(type) {
+			// func() expected to be non-blocking and wgInit.Done()
+			// tiggers afer the function returns; call to grace.Done()
+			// will confirm ready state
+			case func():
+				fxn()
+				wgInit.Done()
+			// func(context.Context, *sync.WaitGroup) expected to block
+			// and wgInit.Done() triggers before context blocking occurs;
+			// call to grace.Done() confirms ready state
+			case func(context.Context, *sync.WaitGroup):
+				fxn(g.Context(), wgInit)
+			// func(context.Context) legacy blocks on context, but can only signal
+			// the process has started; a call to grace.Done() can not confirm the
+			// ready state, it can only signal GraceInit started the process
+			case func(context.Context):
+				wgInit.Done()
+				fxn(g.Context())
+			}
+
+		}(obj[i], g.wgInit)
+		time.Sleep(time.Millisecond) // go routine ordering control
+
 	}
 
 	return g
 }
 
-// GraceInitContext starts the func and expects the blocking func to report
-// when init process has completed and then blocks on <-ctx.Done(); both the
-// Context and WaitGroup are supplied to the function from graceful
-//
-//	func (a *Action) Init01(ctx context.Context, init *sync.WaitGroup) {
-//		log.Println("action: init01 entry")
-//		defer log.Println("action: init01 exit")
-//		init.Done()
-//		<-ctx.Done()
-//	}
-//
-// g.wgShutdown.Done() only triggers after the func returns
-// and gracefule.wgInit.Done() must trigger once the init is complete
-// and before contxt blocking or grace.Done() will never proceed
-func GraceInitContext(g *graceful, obj ...func(context.Context, *sync.WaitGroup)) *graceful {
-
-	if g == nil {
-		g = NewGraceful()
-	}
-
-	if !g.silent {
-		log.Printf("%s: grace initialize [%d]", g.name, len(obj))
-	}
-
-	g.wgInit.Add(len(obj) + 1)
-	defer g.wgInit.Done()
-
-	for i := range obj {
-		g.wgShutdown.Add(1)
-		go func(i int) {
-			obj[i](g.Context(), g.wgInit)
-			g.wgShutdown.Done()
-		}(i)
-	}
-
-	return g
-}
-
-// Silent flag toggle for env.Graceful, writes logs on os.Stderr (default: on)
+// Silent log flag toggle that writes logs on os.Stderr (default: on)
 func (g *graceful) Silent() *graceful { g.silent = !g.silent; return g }
+
+// Frame bar flag toggle for graceful events (default:on)
+func (g *graceful) Frame() *graceful { g.silent = !g.silent; return g }
 
 // SetExit sets the os.Exit(n) status code
 //
@@ -151,23 +139,25 @@ func (g *graceful) Context() context.Context { return g.ctx }
 // is order flowed to abort multiple calls
 func (g *graceful) Cancel() {
 	if g.stop.CompareAndSwap(false, true) {
-		if !g.silent {
-			log.Printf("%s: shutdown initiated", g.name)
-		}
+		// if !g.silent {
+		// 	log.Printf("%s: shutdown initiated", g.name)
+		// }
+		g.framer("shutdown initiated")
 		g.cancel() // signal manager shutdowns
 		g.Wait()
 	}
 }
 
-// Done blocks until all g.wgInit bootstaps are complete
+// Done blocks until all g.wgInit process are complete
 func (g *graceful) Done() {
 	// delay timer to allow g.Manager to register
 	// at least one wgInit.Add(1) event
 	time.Sleep(time.Millisecond * 250)
 	g.wgInit.Wait()
-	if !g.silent {
-		log.Printf("%s: bootstrap complete", g.name)
-	}
+	//if !g.silent {
+	g.framer("initilization complete")
+	//log.Printf("%s: initilization complete", g.name)
+	//}
 }
 
 // Wait blocks on the g context and waits for inits to terminate to cleanly exit
@@ -176,20 +166,34 @@ func (g *graceful) Done() {
 func (g *graceful) Wait() {
 	if g.wait.CompareAndSwap(false, true) { // ignore recurrent calls
 
-		g.wgInit.Wait()     // allow bootstraps to complete
+		g.wgInit.Wait()     // allow init bootstraps to complete
 		<-g.ctx.Done()      // block and wait on context
 		g.wgShutdown.Wait() // allow shutdowns to complete
 
 		if g.bye.CompareAndSwap(false, true) { // ignore recurrent calls
-			if !g.silent {
-				log.Printf("|%s|", strings.Repeat("-", 40))
-				log.Printf(" %s: bye", g.name)
-				log.Printf("|%s|", strings.Repeat("-", 40))
-			}
+			g.framer("bye")
+			// if !g.silent {
+			// 	log.Printf("|%s|", strings.Repeat("-", 40))
+			// 	log.Printf(" %s: bye", g.name)
+			// 	log.Printf("|%s|", strings.Repeat("-", 40))
+			// }
 			time.Sleep(time.Millisecond * 250)
 			if g.exit != 0 {
 				os.Exit(g.exit)
 			}
+		}
+	}
+}
+
+// framer is the bar frame content printer
+func (g *graceful) framer(event string) {
+	if !g.silent {
+		if !g.frame {
+			log.Printf("|%s|", strings.Repeat("-", 40))
+		}
+		log.Printf(" %s: %s", g.name, event)
+		if !g.frame {
+			log.Printf("|%s|", strings.Repeat("-", 40))
 		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/zxdev/env/v2"
 )
@@ -77,7 +78,7 @@ func (a *Action) Start(ctx context.Context) {
 }
 
 func (a *Action) Init00() {
-	log.Println("action: init00 entry")
+	defer log.Println("action: init00")
 }
 
 func (a *Action) Init01(ctx context.Context, init *sync.WaitGroup) {
@@ -87,40 +88,20 @@ func (a *Action) Init01(ctx context.Context, init *sync.WaitGroup) {
 	<-ctx.Done()
 }
 
-func (a *Action) Init02(ctx context.Context) func() {
-	log.Println("action: init02 entry")
-	return func() {
-		defer log.Println("action: init92 exit")
-		<-ctx.Done()
-	}
-}
-
-func (a *Action) Init03(ctx context.Context) func() {
-	log.Println("action: init03 entry")
-	return func() {
-		go func() {
-			defer log.Println("action: init03 exit")
-			<-ctx.Done()
-		}()
-	}
+func (a *Action) Init02(ctx context.Context) {
+	log.Println("action: init02 start")
+	defer log.Println("action: init02 stop")
+	time.Sleep(time.Second * 5)
+	<-ctx.Done()
 }
 
 func TestGraceInit(t *testing.T) {
 
 	var a Action
-	grace := env.GraceInit(nil, a.Init00)
+	grace := env.GraceInit(nil, a.Init00, a.Init01) //, a.Init02)
 	defer grace.Wait()
 
-	grace.Done()
-
-}
-
-func TestGraceInitContext(t *testing.T) {
-
-	var a Action
-	grace := env.GraceInitContext(nil, a.Init01)
-	defer grace.SetExit(-1).Wait()
-
+	t.Log("grace.Done()")
 	grace.Done()
 
 }
