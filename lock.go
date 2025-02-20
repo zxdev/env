@@ -1,70 +1,57 @@
 package env
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
 )
 
-/*
-
-	// single process lock
-	var lock env.Lock
-	if lock.Exist(nil) {
-		return
-	}
-	lock.Lock()
-	defer lock.Unlock()
-
-*/
-
-// Lock directory; default /tmp
-type Lock string
-
-// Exist reports the {file}.lock state as a boolean and
-// expires the lock when past the ttl; default 1hr
-func (lock *Lock) Exist(ttl *time.Duration) bool {
-
-	if ttl == nil || *ttl == 0 {
-		ttl1hr := time.Hour
-		ttl = &ttl1hr // default
-	}
-
-	var path = string(*lock)
-	if len(path) == 0 {
-		path = "/tmp"
-	}
-
-	path = filepath.Join(path, filepath.Base(os.Args[0])+".lock")
-	*lock = Lock(path)
-
-	if _, err := os.Stat(filepath.Dir(path)); errors.Is(err, fs.ErrNotExist) {
-		os.MkdirAll(filepath.Dir(path), 0755)
-		return false
-	}
-
-	info, err := os.Stat(path)
-	if info != nil && info.ModTime().Before(time.Now().Add(-(*ttl))) {
-		return !lock.Unlock()
-	}
-
-	return !errors.Is(err, fs.ErrNotExist)
+// Lock {file}.lock detection
+type Lock struct {
+	Path string        // lock directory
+	TTL  time.Duration // default 1hr
 }
 
-// Lock creates a {file}.lock and writes the current pid
-func (lock Lock) Lock() bool {
+// Unlock removes the current {file}.lock
+func (lk *Lock) Unlock() bool {
+	return os.Remove(filepath.Join(lk.Path, filepath.Base(os.Args[0])+".lock")) == nil
+}
 
-	f, err := os.Create(string(lock))
+// Lock sets a current {file}.lock or expires and exiting based on lock.TTL
+// and returns true a lock was successfully set
+//
+//	var lk = lock.Lock{Path: "/tmp", TTL: time.Hour}
+//	if lk.Lock() {
+//		return
+//	}
+//	defer lk.Unlock()
+func (lk *Lock) Lock() bool {
+
+	// default assurances
+	if lk.TTL == 0 {
+		lk.TTL = time.Hour
+	}
+	if len(lk.Path) == 0 {
+		lk.Path = "/tmp"
+	}
+	os.MkdirAll(filepath.Dir(lk.Path), 0755)
+
+	// check existence and/or expired {file}.lock
+	var target = filepath.Join(lk.Path, filepath.Base(os.Args[0])+".lock")
+	info, err := os.Stat(target)
+	if info != nil { // exists
+		if !info.ModTime().Before(time.Now().Add(-lk.TTL)) {
+			return true
+		}
+	}
+
+	// create {file}.lock
+	f, err := os.Create(target)
 	if err == nil {
 		fmt.Fprint(f, os.Getpid())
 		f.Close()
 	}
 
-	return err == nil
+	return err != nil
 }
-
-// Unlock removes a {file}.lock
-func (lock Lock) Unlock() bool { return os.Remove(string(lock)) == nil }
