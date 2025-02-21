@@ -38,7 +38,7 @@ func (a *Action) Init02(ctx context.Context) {
 func main() {
 
 	var a Action
-	grace := env.GraceInit(nil, a.Init00, a.Init01, a.Init02)
+	grace := env.NewGraceful().Init(a.Init00, a.Init01, a.Init02)
 	defer grace.Wait()
 
 	grace.Done()

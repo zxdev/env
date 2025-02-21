@@ -84,7 +84,7 @@ func (a *Action) Init00() {
 func (a *Action) Init01(ctx context.Context, init *sync.WaitGroup) {
 	log.Println("action: init01 entry")
 	defer log.Println("action: init01 exit")
-	defer init.Done()
+	init.Done()
 	<-ctx.Done()
 }
 
@@ -98,7 +98,7 @@ func (a *Action) Init02(ctx context.Context) {
 func TestGraceInit(t *testing.T) {
 
 	var a Action
-	grace := env.GraceInit(nil, a.Init00, a.Init01) //, a.Init02)
+	grace := env.NewGraceful().Init(a.Init00, a.Init01)
 	defer grace.Wait()
 
 	t.Log("grace.Done()")
