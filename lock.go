@@ -18,11 +18,11 @@ func (lk *Lock) Unlock() bool {
 	return os.Remove(filepath.Join(lk.Path, filepath.Base(os.Args[0])+".lock")) == nil
 }
 
-// Lock tests for the presence of a current {file}.Lock and returns true when present; 
-// creates a new {file}.Lock when lockable 
+// Lock tests for the presence of a current {file}.Lock and returns true when
+// a new {file}.Lock was established; false when an existing one is present
 //
 //	var lock = env.Lock{Path: "/tmp", TTL: time.Hour}
-//	if lock.Lock() {
+//	if !lock.Lock() {
 //		return // existing lock
 //	}
 //	defer lk.Unlock()
@@ -41,8 +41,8 @@ func (lk *Lock) Lock() bool {
 	var target = filepath.Join(lk.Path, filepath.Base(os.Args[0])+".lock")
 	info, err := os.Stat(target)
 	if info != nil { // exists
-		if !info.ModTime().Before(time.Now().Add(-lk.TTL)) {
-			return true
+		if info.ModTime().After(time.Now().Add(-lk.TTL)) {
+			return false
 		}
 	}
 
@@ -53,5 +53,5 @@ func (lk *Lock) Lock() bool {
 		f.Close()
 	}
 
-	return err != nil
+	return err == nil
 }
