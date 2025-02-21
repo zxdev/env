@@ -63,21 +63,21 @@ func NewGraceful() *graceful {
 	return g
 }
 
-// GraceInit starts an initilization func
+// Init starts a gracefully manged initilization func() or func(ctx,init)
 //
-//	non-blocking func() exits and then the init.Done() triggers to signal completion; while
-//	a blocking func(ctx,init) expectes init.Done() to trigger internally to signal completion
-//	and before blocking and waiting on a <-ctx.Done() to signal cleanup before exiting
+//	a non-blocking func() exits and then the init.Done() triggers externally to signal completion; while
+//	a blocking func(ctx,init) expectes init.Done() to trigger internally to signal completion and ready
+//	state before internally blocking and waiting on a <-ctx.Done() to signal any cleanup actions on exit
 //
 // these signatures confirm the ready state of the started process via grace.Done()
 //
 //	func() { return }
 //	func(context.Context, *sync.WaitGroup) { init.Done(); <-ctx.Done(); return }
 //
-// this signature can only confirm the process start since the ready state is indeterminate via grace.Done()
+// this signature can only confirm the process has started since the ready state is indeterminate via grace.Done()
 //
 //	func(context.Context)
-func GraceInit(g *graceful, obj ...interface{}) *graceful {
+func (g *graceful) Init(obj ...interface{}) *graceful {
 
 	if g == nil {
 		g = NewGraceful()
