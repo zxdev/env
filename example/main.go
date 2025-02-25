@@ -39,7 +39,7 @@ func main() {
 
 	var a Action
 	grace := env.NewGraceful().Init(a.Init00, a.Init01, a.Init02)
-	defer grace.Wait()
-
-	grace.Done()
+	defer grace.Shutdown()
+	grace.Register(func() { log.Println("extra: non-grace shutdown func") })
+	grace.Wait()
 }

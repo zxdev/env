@@ -18,33 +18,34 @@ import (
 	grace := env.NewGraceful().Silent()
 	...
 	grace.Manager(&something)
-	grace.Done() // wait on manager completion
-	grace.Wait() // wait on shutdown signal
+	grace.Wait() // wait on manager completion
+	grace.Shutdown() // wait on shutdown signal
 
 */
 
 // graceful struct control elements
 type graceful struct {
-	wgInit, wgShutdown *sync.WaitGroup
-	ctx                context.Context
-	cancel             context.CancelFunc
-	silent, frame      bool
-	exit               int
-	name               string
-	stop, wait, bye    atomic.Bool
+	init, shutdown  *sync.WaitGroup
+	ctx             context.Context
+	cancel          context.CancelFunc
+	silent, frame   bool
+	exit            int
+	name            string
+	stop, wait, bye atomic.Bool
+	register        []func()
 }
 
-// NewGraceful configurator returns *graceful and starts the shutdown controller to
+// NewGraceful configurator returns *graceful and starts a shutdown controller to
 // capture (os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) signals and waits on
-// the <-g.context.Done() for a signal and waits for the g.Manager
-// controller wgShutdown to confirm all managed processes and completed tasks before
+// the <-g.context for a termination signal and waits for the g.init, g.shutdown
+// controller shutdown to confirm all managed processes have completed tasks before
 // the program terminates execution
 func NewGraceful() *graceful {
 
 	g := &graceful{
-		wgInit:     new(sync.WaitGroup),
-		wgShutdown: new(sync.WaitGroup),
-		name:       filepath.Base(os.Args[0]),
+		init:     new(sync.WaitGroup),
+		shutdown: new(sync.WaitGroup),
+		name:     filepath.Base(os.Args[0]),
 	}
 	g.ctx, g.cancel = context.WithCancel(context.Background())
 
@@ -57,10 +58,72 @@ func NewGraceful() *graceful {
 			signal.Stop(sig) // got a signal; one is enough
 			g.cancel()
 		}
-		g.Wait()
+		g.Shutdown()
 	}(g)
 
 	return g
+}
+
+// Silent log flag toggle that writes logs on os.Stderr (default: on)
+func (g *graceful) Silent() *graceful { g.silent = !g.silent; return g }
+
+// Frame bar flag toggle for graceful events (default:on)
+func (g *graceful) Frame() *graceful { g.silent = !g.silent; return g }
+
+// SetExit sets the os.Exit(n) status code
+//
+// zero causes a simple return instead of os.Exit
+func (g *graceful) SetExit(i int) *graceful { g.exit = i; return g }
+
+// Context is the graceful background master context exported for use where this
+// background context should be extended to other processes or context wrappers
+func (g *graceful) Context() context.Context { return g.ctx }
+
+// Cancels the graceful background context and waits for a clean exit;
+// is order flowed to abort multiple calls
+func (g *graceful) Cancel() {
+	if g.stop.CompareAndSwap(false, true) {
+		g.framer("shutdown initiated")
+		g.cancel() // signal manager shutdowns
+		g.Shutdown()
+	}
+}
+
+// Wait blocks until all .Init process have reported finished; ready state
+func (g *graceful) Wait() {
+	// delay timer to allow g.Init to register
+	// at least one init.Add(1) event
+	//time.Sleep(time.Millisecond * 250)
+	g.init.Wait()
+	g.framer("initilization complete")
+}
+
+// Register adds func() that are outside the .Init management
+// architecture and that process before exiting via .Shutdown
+func (g *graceful) Register(a ...func()) { g.register = append(g.register, a...) }
+
+// Shutdown is order flow controlled to abort multiple calls and blocks on the background context
+// and waits for all managed inits to terminate to cleanly exit; when a g.exit value is non-zero
+// the process will call os.Exit(n), otherwise it just exits via a simple return; any additional
+// registered func() will execute for controlled shutdown tasks outside the graceful architecture
+func (g *graceful) Shutdown() {
+	if g.wait.CompareAndSwap(false, true) { // ignore recurrent calls
+
+		g.init.Wait()     // allow init bootstraps to complete
+		<-g.ctx.Done()    // block and wait on context
+		g.shutdown.Wait() // allow shutdowns to complete
+
+		if g.bye.CompareAndSwap(false, true) { // ignore recurrent calls
+			for i := range g.register {
+				g.register[i]()
+			}
+			g.framer("bye")
+			time.Sleep(time.Millisecond * 250)
+			if g.exit != 0 {
+				os.Exit(g.exit)
+			}
+		}
+	}
 }
 
 // Init starts a gracefully manged initilization func() or func(ctx,init)
@@ -84,105 +147,40 @@ func (g *graceful) Init(obj ...interface{}) *graceful {
 		log.Printf("grace: %s init [%d]", g.name, len(obj))
 	}
 
-	g.wgInit.Add(len(obj) + 1)
-	defer g.wgInit.Done()
+	g.init.Add(len(obj) + 1)
+	defer g.init.Done()
 
 	for i := range obj {
 
-		g.wgShutdown.Add(1)
-		go func(obj interface{}, wgInit *sync.WaitGroup) {
-			defer g.wgShutdown.Done()
+		g.shutdown.Add(1)
+		go func(obj interface{}, init *sync.WaitGroup) {
+			defer g.shutdown.Done()
 			switch fxn := obj.(type) {
-			// func() expected to be non-blocking and wgInit.Done()
-			// tiggers afer the function returns; call to grace.Done()
+			// func() expected to be non-blocking and init.Done()
+			// tiggers afer the function returns; call to grace.Wait()
 			// will confirm ready state
 			case func():
 				fxn()
-				wgInit.Done()
+				init.Done()
 			// func(context.Context, *sync.WaitGroup) expected to block
-			// and wgInit.Done() triggers before context blocking occurs;
-			// call to grace.Done() confirms ready state
+			// and init.Done() triggers before context blocking occurs;
+			// call to grace.Wait() confirms ready state
 			case func(context.Context, *sync.WaitGroup):
-				fxn(g.Context(), wgInit)
-			// func(context.Context) legacy blocks on context, but can only signal
-			// the process has started; a call to grace.Done() can not confirm the
-			// ready state, it can only signal GraceInit started the process
+				fxn(g.Context(), init)
+			// func(context.Context) blocks on context, but can only signal
+			// the process has started; a call to grace.Wait() will not confirm the
+			// ready state, it can only signal Init started the process
 			case func(context.Context):
-				wgInit.Done()
+				init.Done()
 				fxn(g.Context())
 			}
 
-		}(obj[i], g.wgInit)
+		}(obj[i], g.init)
 		time.Sleep(time.Millisecond) // go routine ordering control
 
 	}
 
 	return g
-}
-
-// Silent log flag toggle that writes logs on os.Stderr (default: on)
-func (g *graceful) Silent() *graceful { g.silent = !g.silent; return g }
-
-// Frame bar flag toggle for graceful events (default:on)
-func (g *graceful) Frame() *graceful { g.silent = !g.silent; return g }
-
-// SetExit sets the os.Exit(n) status code
-//
-// zero causes a simple return instead of os.Exit
-func (g *graceful) SetExit(i int) *graceful { g.exit = i; return g }
-
-// Context is the background master g.context expored for use where the
-// background context from graceful should be extended to other processes
-func (g *graceful) Context() context.Context { return g.ctx }
-
-// Cancels the graceful background context and waits for a clean exit;
-// is order flowed to abort multiple calls
-func (g *graceful) Cancel() {
-	if g.stop.CompareAndSwap(false, true) {
-		// if !g.silent {
-		// 	log.Printf("%s: shutdown initiated", g.name)
-		// }
-		g.framer("shutdown initiated")
-		g.cancel() // signal manager shutdowns
-		g.Wait()
-	}
-}
-
-// Done blocks until all g.wgInit process are complete
-func (g *graceful) Done() {
-	// delay timer to allow g.Manager to register
-	// at least one wgInit.Add(1) event
-	time.Sleep(time.Millisecond * 250)
-	g.wgInit.Wait()
-	//if !g.silent {
-	g.framer("initilization complete")
-	//log.Printf("%s: initilization complete", g.name)
-	//}
-}
-
-// Wait blocks on the g context and waits for inits to terminate to cleanly exit
-// when a g.exit value is non-zero the process will call os.Exit(n), otherwise
-// exits with a simple return and is order flow controlled to abort multiple calls
-func (g *graceful) Wait() {
-	if g.wait.CompareAndSwap(false, true) { // ignore recurrent calls
-
-		g.wgInit.Wait()     // allow init bootstraps to complete
-		<-g.ctx.Done()      // block and wait on context
-		g.wgShutdown.Wait() // allow shutdowns to complete
-
-		if g.bye.CompareAndSwap(false, true) { // ignore recurrent calls
-			g.framer("bye")
-			// if !g.silent {
-			// 	log.Printf("|%s|", strings.Repeat("-", 40))
-			// 	log.Printf(" %s: bye", g.name)
-			// 	log.Printf("|%s|", strings.Repeat("-", 40))
-			// }
-			time.Sleep(time.Millisecond * 250)
-			if g.exit != 0 {
-				os.Exit(g.exit)
-			}
-		}
-	}
 }
 
 // framer is the bar frame content printer

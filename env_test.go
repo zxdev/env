@@ -2,6 +2,7 @@ package env_test
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -99,9 +100,10 @@ func TestGraceInit(t *testing.T) {
 
 	var a Action
 	grace := env.NewGraceful().Init(a.Init00, a.Init01)
-	defer grace.Wait()
+	defer grace.Shutdown()
+	grace.Register(func() { fmt.Println("bye-bye") })
 
 	t.Log("grace.Done()")
-	grace.Done()
+	grace.Wait()
 
 }
