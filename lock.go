@@ -39,11 +39,9 @@ func (lk *Lock) Lock() bool {
 
 	// check existence and/or expired {file}.lock
 	var target = filepath.Join(lk.Path, filepath.Base(os.Args[0])+".lock")
-	info, err := os.Stat(target)
-	if info != nil { // exists
-		if info.ModTime().After(time.Now().Add(-lk.TTL)) {
-			return false
-		}
+	info, _ := os.Stat(target) // verify exists
+	if info != nil && info.ModTime().After(time.Now().Add(-lk.TTL)) {
+		return false
 	}
 
 	// create {file}.lock

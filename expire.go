@@ -112,7 +112,7 @@ func (ex *Expire) Expire() *Expire {
 		for j := range content {
 			if content[j].Type().IsRegular() {
 				info, _ := os.Stat(filepath.Join(ex.item[i].Path, content[j].Name()))
-				if !info.IsDir() && info.ModTime().Add(ex.item[i].TTL).Before(now) {
+				if info != nil && !info.IsDir() && info.ModTime().Add(ex.item[i].TTL).Before(now) {
 					if !ex.silent {
 						log.Println("expire:", info.Name())
 					}
