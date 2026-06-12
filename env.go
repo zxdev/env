@@ -240,7 +240,7 @@ func usage(cfg ...any) {
 }
 
 // typeCode returns the single-letter type code shown in the help table:
-// s string, i int, u uint, b bool, d time.Duration; blank for unsupported.
+// s string, i int, u uint, f float, b bool, d time.Duration; blank for unsupported.
 func typeCode(v reflect.Value) string {
 	if v.Type().String() == "time.Duration" {
 		return "d"
@@ -252,6 +252,8 @@ func typeCode(v reflect.Value) string {
 		return "i"
 	case reflect.Uint, reflect.Uint64:
 		return "u"
+	case reflect.Float32, reflect.Float64:
+		return "f"
 	case reflect.Bool:
 		return "b"
 	}
@@ -266,7 +268,7 @@ func typeCode(v reflect.Value) string {
 // final values in the key:value os.Environment table.
 //
 //	env: alias,require,order,environ field flags
-//	supports: string, bool, int/64, uint/64 types
+//	supports: string, bool, int/64, uint/64, float32/64 types
 func (p *Options) parse(cfg ...any) {
 
 	// overlaoding order
@@ -402,9 +404,9 @@ func (p *Options) parse(cfg ...any) {
 	}
 }
 
-// setField supports the string, bool, int, int64, uint, uint64 types as
-// well as types derived from them (eg. time.Duration is int64); otherwise
-// the field is ignored as nothing can be set
+// setField supports the string, bool, int, int64, uint, uint64, float32,
+// float64 types as well as types derived from them (eg. time.Duration is
+// int64); otherwise the field is ignored as nothing can be set
 func (p *Options) setField(v reflect.Value, s string) (string, bool) {
 
 	var ok bool
@@ -434,6 +436,17 @@ func (p *Options) setField(v reflect.Value, s string) (string, bool) {
 			break
 		}
 		v.SetUint(n)
+		ok = len(s) > 0 // accept 0 as valid
+
+	case reflect.Float32, reflect.Float64:
+		n, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			if len(s) > 0 { // warn rather than silently coercing to 0
+				fmt.Fprintf(os.Stderr, "%s: invalid float %q\n", filepath.Base(os.Args[0]), s)
+			}
+			break // leave field unchanged; status stays false
+		}
+		v.SetFloat(n)
 		ok = len(s) > 0 // accept 0 as valid
 
 	case reflect.Bool:

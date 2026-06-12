@@ -6,7 +6,7 @@
 //	go run ./example help serve       # serve's flag table
 //	go run ./example serve help       # same flag table
 //	go run ./example version          # one-line version
-//	go run ./example pull -since 48h  # dispatch to pull
+//	go run ./example pull -s 48h -r 2.5  # dispatch to pull (float -r)
 //	go run ./example serve -addr :9090 -tls
 //
 // The serve command additionally shows the graceful lifecycle driving a
@@ -24,8 +24,9 @@ import (
 // pullCfg configures the pull subcommand; the env:/default:/help: tags drive
 // both parsing and the help table.
 type pullCfg struct {
-	Since string `env:"s" default:"24h" help:"lookback window"`
-	Limit int    `default:"100" help:"max records"`
+	Since string  `env:"s" default:"24h" help:"lookback window"`
+	Limit int     `default:"100" help:"max records"`
+	Rate  float64 `env:"r" default:"1.5" help:"requests per second"`
 }
 
 // serveCfg configures the serve subcommand.
@@ -51,7 +52,7 @@ func main() {
 			Help: "retrieve and stage records",
 			Cfg:  &pull,
 			Run: func(path *env.Path) {
-				log.Printf("pull: since=%s limit=%d -> %s", pull.Since, pull.Limit, path.Var)
+				log.Printf("pull: since=%s limit=%d rate=%g -> %s", pull.Since, pull.Limit, pull.Rate, path.Var)
 			},
 		},
 		env.Command{

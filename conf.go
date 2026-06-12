@@ -42,6 +42,9 @@ func Conf(cfg any, path string) {
 				case reflect.Uint, reflect.Uint64:
 					n, _ := strconv.ParseUint(s, 10, 0)
 					v.Field(j).SetUint(n)
+				case reflect.Float32, reflect.Float64:
+					n, _ := strconv.ParseFloat(s, 64)
+					v.Field(j).SetFloat(n)
 				case reflect.Bool:
 					switch strings.ToLower(s) {
 					// case "off", "no", "false", "0":
