@@ -68,7 +68,7 @@ func NewGraceful() *graceful {
 func (g *graceful) Silent() *graceful { g.silent = !g.silent; return g }
 
 // Frame bar flag toggle for graceful events (default:on)
-func (g *graceful) Frame() *graceful { g.silent = !g.silent; return g }
+func (g *graceful) Frame() *graceful { g.frame = !g.frame; return g }
 
 // SetExit sets the os.Exit(n) status code
 //
@@ -140,7 +140,7 @@ func (g *graceful) Shutdown() {
 // this signature can only confirm the process has started since the ready state is indeterminate via grace.Done()
 //
 //	func(context.Context)
-func (g *graceful) Init(obj ...interface{}) *graceful {
+func (g *graceful) Init(obj ...any) *graceful {
 
 	if g == nil {
 		g = NewGraceful()
@@ -153,7 +153,7 @@ func (g *graceful) Init(obj ...interface{}) *graceful {
 	for i := range obj {
 
 		g.shutdown.Add(1)
-		go func(obj interface{}, init *sync.WaitGroup) {
+		go func(obj any, init *sync.WaitGroup) {
 			defer g.shutdown.Done()
 			switch fxn := obj.(type) {
 			// func() expected to be non-blocking and init.Done()
@@ -173,6 +173,11 @@ func (g *graceful) Init(obj ...interface{}) *graceful {
 			case func(context.Context):
 				init.Done()
 				fxn(g.Context())
+			// an unsupported signature must still release its init slot or
+			// grace.Wait()/Shutdown() would block on init.Wait() forever
+			default:
+				log.Printf("grace: unsupported Init signature %T (skipped)", fxn)
+				init.Done()
 			}
 
 		}(obj[i], g.init)

@@ -2,7 +2,6 @@ package env
 
 import (
 	"encoding/gob"
-	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -46,11 +45,13 @@ func (p *Persist) filename() string {
 
 // Load persist object from disk or remove when older than stated ttl;
 // ignores auto expiration when ttl is nil or 0
-func (p Persist) Load(persist interface{}, ttl *time.Duration) bool {
+func (p Persist) Load(persist any, ttl *time.Duration) bool {
 
 	if ttl != nil && *ttl > 0 {
 		info, err := os.Stat(p.filename())
-		if os.IsNotExist(err) || info.ModTime().Before(time.Now().Add(-(*ttl))) {
+		// any stat error (missing, permission, race) leaves info nil; treat as
+		// gone rather than dereferencing info and panicking
+		if err != nil || info.ModTime().Before(time.Now().Add(-(*ttl))) {
 			os.Remove(string(p))
 			return true
 		}
@@ -66,14 +67,15 @@ func (p Persist) Load(persist interface{}, ttl *time.Duration) bool {
 }
 
 // Save persist object to disk; accepts anything
-func (p Persist) Save(persist interface{}) bool {
+func (p Persist) Save(persist any) bool {
 
 	f, err := os.Create(p.filename())
 	if err == nil {
-		gob.NewEncoder(f).Encode(persist)
-		f.Close()
+		err = gob.NewEncoder(f).Encode(persist)
+		if cerr := f.Close(); err == nil {
+			err = cerr // surface a flush/close failure when encode succeeded
+		}
 	}
-	fmt.Println(err)
 
 	return err == nil
 }

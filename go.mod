@@ -1,4 +1,4 @@
-module github.com/zxdev/env/v2
+module github.com/zxdev/env
 
-go 1.15
+go 1.26
 
