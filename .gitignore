@@ -1,0 +1,8 @@
+# ignore configs
+.vscode
+.claude
+
+# ignore files and folders
+_*/
+**/.DS_Store
+**/~*
