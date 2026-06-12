@@ -54,6 +54,14 @@ type Options struct {
 // options to silence log and help output and env.Options.M map populates,
 // struct initially, overloaded by environment vars, overloaded by default
 // tag, that is then overloaded by command line swithches, in this order
+//
+//	var p params
+//	path := env.NewEnv(&p) // parse, populate, and log a summary
+//
+// pass Options first to adjust behavior, and multiple structs to populate
+// several at once:
+//
+//	path := env.NewEnv(&env.Options{Silent: true}, &app, &server)
 func Configure(cfg ...any) (path *Path) {
 
 	var opt Options

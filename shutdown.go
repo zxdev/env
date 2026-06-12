@@ -11,7 +11,7 @@ import (
 // when env.Graceful is not used; shutdownFunc will execute after a system or user
 // signal is received (can be nil), however when a context.CancelFunc acutally
 // needs to be called before exiting (or anything else for control purposes)
-// then pass these items wrapped as the shutdownFunc; uses os.Exit(0)
+// then pass these items wrapped as the shutdownFunc; uses os.Exit(0) on exit
 //
 //	ctx, cancel:= context.WithCancel(context.Backgroud())
 //	env.Shutdown(ctx, func(){cancel()})

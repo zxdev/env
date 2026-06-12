@@ -7,30 +7,28 @@ import (
 	"time"
 )
 
-/*
-
-	var persist env.Persist = "example"
-	var m persist.NewMap()
-	var ttl = time.Hour*24
-	persist.Load(&m, ttl)
-	m.Add("now_key")
-	if next := m.Next(ttl); next != nil {
-		var key string
-		var more bool
-		for {
-			if key, more = next(); !more {
-				break
-			}
-			// do stuff here
-		}
-	}
-	if len(m) > 0 {
-		persist.Save(m)
-	}
-
-*/
-
-// Persist type
+// Persist saves and resumes gob-encodable data across runs, keyed by a base
+// name (the ".persist" extension is added automatically); an optional TTL
+// expires stale state on Load.
+//
+//	var store env.Persist = "example" // -> example.persist
+//	ttl := 24 * time.Hour
+//
+//	m := env.NewMap()
+//	store.Load(m, &ttl) // older than ttl? removed instead of loaded
+//	m.Add("now_key")
+//	if next := m.Next(ttl); next != nil {
+//		for {
+//			key, more := next()
+//			if !more {
+//				break
+//			}
+//			_ = key // do stuff here (key consumed as it is read)
+//		}
+//	}
+//	if len(*m) > 0 {
+//		store.Save(m) // persist what is left
+//	}
 type Persist string
 
 // filename verifies location and extension

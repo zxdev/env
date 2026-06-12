@@ -13,16 +13,6 @@ import (
 	"time"
 )
 
-/*
-
-	grace := env.NewGraceful().Silent()
-	...
-	grace.Manager(&something)
-	grace.Wait() // wait on manager completion
-	grace.Shutdown() // wait on shutdown signal
-
-*/
-
 // graceful struct control elements
 type graceful struct {
 	init, shutdown  *sync.WaitGroup
@@ -40,6 +30,12 @@ type graceful struct {
 // the <-g.context for a termination signal and waits for the g.init, g.shutdown
 // controller shutdown to confirm all managed processes have completed tasks before
 // the program terminates execution
+//
+//	var a Action
+//	grace := env.NewGraceful().Init(a.Init00, a.Init01, a.Init02)
+//	defer grace.Shutdown()                                   // block until ctx is done and managers exit
+//	grace.Register(func() { log.Println("extra cleanup") })  // cleanup outside the Init architecture
+//	grace.Wait()                                             // block until all Init processes report ready
 func NewGraceful() *graceful {
 
 	g := &graceful{
