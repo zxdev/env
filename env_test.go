@@ -6,10 +6,11 @@ import (
 	"log"
 	"os"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
-	"github.com/zxdev/env/v2"
+	"github.com/zxdev/env"
 )
 
 func TestEnv(t *testing.T) {
@@ -102,6 +103,16 @@ func TestGraceInit(t *testing.T) {
 	grace := env.NewGraceful().Init(a.Init00, a.Init01)
 	defer grace.Shutdown()
 	grace.Register(func() { fmt.Println("bye-bye") })
+
+	// generate a SIGTERM after 5s so the graceful controller exercises its
+	// signal-driven shutdown path and the deferred Shutdown() unblocks rather
+	// than waiting on a termination signal that never arrives
+	go func() {
+		time.Sleep(5 * time.Second)
+		if p, err := os.FindProcess(os.Getpid()); err == nil {
+			p.Signal(syscall.SIGTERM)
+		}
+	}()
 
 	t.Log("grace.Done()")
 	grace.Wait()

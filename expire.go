@@ -32,7 +32,7 @@ type Expire struct {
 }
 
 // // NewExpire configurator
-// func NewExpire(ttl interface{}, path ...string) *Expire {
+// func NewExpire(ttl any, path ...string) *Expire {
 // 	var exp Expire
 // 	exp.Add(ttl, path...)
 // 	exp.Expire()
@@ -47,7 +47,7 @@ func (ex *Expire) Silent() *Expire { ex.silent = !ex.silent; return ex }
 //	nil          default 24h
 //	int          n * hour
 //	string       "24h", "1h30m"
-func (ex *Expire) Add(ttl interface{}, path ...string) *Expire {
+func (ex *Expire) Add(ttl any, path ...string) *Expire {
 
 	var exp time.Duration
 	switch d := ttl.(type) {
@@ -57,9 +57,12 @@ func (ex *Expire) Add(ttl interface{}, path ...string) *Expire {
 		exp = time.Hour * time.Duration(d)
 	case string:
 		exp, _ = time.ParseDuration(d)
-		if exp == 0 {
-			exp = time.Hour * 24
-		}
+	}
+
+	// failsafe: an unsupported ttl type, a zero, or a negative value would
+	// otherwise register TTL=0 and delete every file on the next sweep
+	if exp <= 0 {
+		exp = time.Hour * 24
 	}
 
 	for i := range path {

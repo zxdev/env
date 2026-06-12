@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zxdev/env/v2"
+	"github.com/zxdev/env"
 )
 
 type Action struct{}

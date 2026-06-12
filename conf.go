@@ -19,7 +19,7 @@ import (
 //	}
 //
 // supports: string, int, bool
-func Conf(cfg interface{}, path string) {
+func Conf(cfg any, path string) {
 
 	// conf.json {"text":"hello","number":5}
 	// var cfg Example
@@ -36,9 +36,12 @@ func Conf(cfg interface{}, path string) {
 				switch v.Field(j).Kind() {
 				case reflect.String:
 					v.Field(j).SetString(s)
-				case reflect.Int:
+				case reflect.Int, reflect.Int64:
 					n, _ := strconv.ParseInt(s, 10, 0)
 					v.Field(j).SetInt(n)
+				case reflect.Uint, reflect.Uint64:
+					n, _ := strconv.ParseUint(s, 10, 0)
+					v.Field(j).SetUint(n)
 				case reflect.Bool:
 					switch strings.ToLower(s) {
 					// case "off", "no", "false", "0":

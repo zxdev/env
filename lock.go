@@ -35,7 +35,7 @@ func (lk *Lock) Lock() bool {
 	if len(lk.Path) == 0 {
 		lk.Path = "/tmp"
 	}
-	os.MkdirAll(filepath.Dir(lk.Path), 0755)
+	os.MkdirAll(lk.Path, 0755) // lk.Path is the lock directory itself
 
 	// check existence and/or expired {file}.lock
 	var target = filepath.Join(lk.Path, filepath.Base(os.Args[0])+".lock")
