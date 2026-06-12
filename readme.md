@@ -142,28 +142,32 @@ elsewhere they are on.
 
 ### Built-in commands
 
-`version` and `help` are handled automatically:
+`version` and `help` are handled automatically. For the Quick-start `params`
+struct, `help` prints a go-tool style `usage:` line and a compact flag table:
 
 ```text
-% go run example/main.go help
+% myprog help
 
- development
---------------------
- version
- build
+usage: development [flags]
 
- action         a     [or  ] default:           action to perform
- secret               [   *] default:           a shared secret
- flag                 [    ] default:on          a flag setting
- number               [    ] default:5           a number
+ action          a     [s] [or  ]            action to perform
+ secret                [s] [   *]            a shared secret
+ flag                  [b] [    ] (on)       a flag setting
+ number                [i] [    ] (5)        a number
 ```
+
+Each flag row is `name  alias  [type]  [ore*]  (default)  help`, where the type
+code is one of `s` string, `i` int, `u` uint, `b` bool, `d` duration, and the
+`[ore*]` slots mark `o`rder, `r`equire, `e`nviron, and hidden (`*`). A `default:`
+tag is shown in parentheses. `version` prints a one-liner
+(`name version <ver> build <build>`).
 
 A populated run prints the summary log:
 
 ```text
-% go run example/main.go run
+% myprog run
 2026/06/11 21:19:54 |----------------------------------------|
-2026/06/11 21:19:54 | MAIN ::::::::::::::::::::::: event log |
+2026/06/11 21:19:54 | MYPROG ::::::::::::::::::::: event log |
 2026/06/11 21:19:54 |-----//o--------------------------------|
 2026/06/11 21:19:54                                 version
 2026/06/11 21:19:54                                 build
@@ -182,27 +186,43 @@ A populated run prints the summary log:
 
 `env.Commands` adds go-tool style subcommand dispatch. Each `env.Command` pairs
 a name and one-line help with a tagged config struct and an optional handler;
-the selected command's flags are parsed with the same machinery as
-`Configure`.
+the selected command's flags are parsed with the same machinery as `Configure`.
+This is the heart of [`example/main.go`](example/main.go):
 
 ```go
-var pull pullCfg
-var push pushCfg
+type pullCfg struct {
+    Since string `env:"s" default:"24h" help:"lookback window"`
+    Limit int    `default:"100" help:"max records"`
+}
 
-path, name := env.Commands(nil,
-    env.Command{
-        Name: "pull",
-        Help: "retrieve and stage records",
-        Cfg:  &pull,
-        Run:  func(path *env.Path) { pull.exec(path) },
-    },
-    env.Command{
-        Name: "push",
-        Help: "publish staged records",
-        Cfg:  &push,
-    },
-)
-_ = name // the selected command word
+type serveCfg struct {
+    Addr string `env:"a" default:":8080" help:"listen address"`
+    TLS  bool   `help:"enable TLS"`
+}
+
+func main() {
+    env.Version = "1.2.0"
+    env.Build = "2026-06-11"
+    env.Description = "example is a tool that demonstrates env subcommand dispatch."
+
+    var pull pullCfg
+    var serve serveCfg
+
+    env.Commands(nil,
+        env.Command{
+            Name: "pull",
+            Help: "retrieve and stage records",
+            Cfg:  &pull,
+            Run:  func(path *env.Path) { /* pull.exec(path) */ },
+        },
+        env.Command{
+            Name: "serve",
+            Help: "run the long-lived service",
+            Cfg:  &serve,
+            Run:  func(path *env.Path) { /* runServe(&serve) */ },
+        },
+    )
+}
 ```
 
 Dispatch surface:
@@ -212,7 +232,7 @@ prog                 -> menu listing every command
 prog help            -> menu
 prog help <cmd>      -> that command's flag table
 prog <cmd> help      -> that command's flag table
-prog version         -> version banner
+prog version         -> one-line version
 prog <cmd> [flags]   -> Configure(cmd.Cfg) on the remaining args, then Run
 ```
 
@@ -220,6 +240,68 @@ The subcommand word is stripped from `os.Args` before parsing, so each command
 sees only its own flags and ordered positionals. An unknown command prints the
 menu and exits non-zero. Pass `*env.Options` (or `nil` for defaults) to control
 `Silent`/`NoHelp`/`SetENV`/`NoExit`.
+
+With no arguments (or `help`), `env.Commands` prints a go-tool style menu:
+
+```text
+% go run ./example
+
+example is a tool that demonstrates env subcommand dispatch.
+
+Usage:
+
+	example <command> [arguments]
+
+The commands are:
+
+	pull   retrieve and stage records
+	serve  run the long-lived service
+
+Use "example help <command>" for more information about a command.
+```
+
+`help <cmd>` (or `<cmd> help`) drills into a command's flag table:
+
+```text
+% go run ./example help pull
+
+usage: example pull [flags]
+
+retrieve and stage records
+
+ since           s     [s] [    ] (24h)      lookback window
+ limit                 [i] [    ] (100)      max records
+
+% go run ./example help serve
+
+usage: example serve [flags]
+
+run the long-lived service
+
+ addr            a     [s] [    ] (:8080)    listen address
+ tls                   [b] [    ]            enable TLS
+```
+
+`version` prints a one-liner, and any other first word dispatches to that
+command — parsing its flags, logging the summary, then running its handler:
+
+```text
+% go run ./example version
+development version 1.2.0 build 2026-06-11
+
+% go run ./example pull -since 48h
+2026/06/11 21:41:15 |----------------------------------------|
+2026/06/11 21:41:15 | EXAMPLE :::::::::::::::::::: event log |
+2026/06/11 21:41:15 |-----//o--------------------------------|
+2026/06/11 21:41:15                           1.2.0 version
+2026/06/11 21:41:15                      2026-06-11 build
+2026/06/11 21:41:15  mac                        pid 20175
+2026/06/11 21:41:15 |-----//o--------------------------------|
+2026/06/11 21:41:15  since          | 48h
+2026/06/11 21:41:15  limit          | 100
+2026/06/11 21:41:15 |----------------------------------------|
+2026/06/11 21:41:15 pull: since=48h limit=100 -> _dev/var
+```
 
 ---
 
@@ -375,7 +457,8 @@ drains entries as it yields them and drops anything older than the supplied age.
 | `env.NewGraceful`              | graceful startup/shutdown controller                 |
 | `env.Shutdown`                 | minimal signal/context shutdown helper               |
 
-See [`example/main.go`](example/main.go) for a runnable graceful service.
+See [`example/main.go`](example/main.go) for a runnable subcommand CLI whose
+`serve` command drives a graceful service.
 
 ---
 

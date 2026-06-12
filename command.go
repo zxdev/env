@@ -33,7 +33,7 @@ type Command struct {
 //	prog help           -> menu
 //	prog help <cmd>     -> the command's flag table
 //	prog <cmd> help     -> the command's flag table
-//	prog version        -> version banner
+//	prog version        -> one-line version
 //	prog <cmd> [flags]  -> Configure(cmd.Cfg) on the remaining args
 //
 // Pass Options to control Silent/NoHelp/SetENV/NoExit, as with env.Configure;
@@ -57,7 +57,7 @@ func Commands(opt *Options, cmds ...Command) (path *Path, name string) {
 		os.Exit(0)
 
 	case argv[0] == "version", argv[0] == "-version", argv[0] == "--version":
-		// defer to Configure's existing version banner
+		// defer to Configure's existing version line
 		return Configure(opt), ""
 
 	case argv[0] == "help", argv[0] == "-h", argv[0] == "-help", argv[0] == "--help":
@@ -124,30 +124,37 @@ func lookup(cmds []Command, name string) *Command {
 func menu(cmds []Command) {
 
 	name := filepath.Base(os.Args[0])
-	fmt.Printf("\n %s\n%s\n version %s\n build   %s\n\n",
-		name, strings.Repeat("-", 40), Version, Build)
 	if len(Description) > 0 {
-		fmt.Printf(" %s\n\n", Description)
+		fmt.Printf("%s\n\n", Description)
+	}
+	fmt.Printf("Usage:\n\n\t%s <command> [arguments]\n\n", name)
+
+	// width the command column to the longest command name
+	var width int
+	for i := range cmds {
+		if len(cmds[i].Name) > width {
+			width = len(cmds[i].Name)
+		}
 	}
 
-	fmt.Println(" commands:")
+	fmt.Println("The commands are:")
+	fmt.Println()
 	for i := range cmds {
-		fmt.Printf("   %-12s %s\n", cmds[i].Name, cmds[i].Help)
+		fmt.Printf("\t%-*s  %s\n", width, cmds[i].Name, cmds[i].Help)
 	}
-	fmt.Printf("\n use \"%s help <command>\" for details\n\n", name)
+	fmt.Printf("\nUse \"%s help <command>\" for more information about a command.\n\n", name)
 }
 
-// commandHelp renders a command-scoped header followed by the field table.
+// commandHelp renders a command-scoped usage header followed by the flag table.
 func commandHelp(c *Command, opt *Options) {
 
 	name := filepath.Base(os.Args[0])
-	fmt.Printf("\n %s %s\n%s\n", name, c.Name, strings.Repeat("-", 40))
+	fmt.Printf("usage: %s %s [flags]\n\n", name, c.Name)
 	if len(c.Help) > 0 {
-		fmt.Printf(" %s\n", c.Help)
+		fmt.Printf("%s\n\n", c.Help)
 	}
-	fmt.Println()
 	if !opt.NoHelp {
 		usage(c.Cfg)
+		fmt.Println()
 	}
-	fmt.Println()
 }

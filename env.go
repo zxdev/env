@@ -102,13 +102,10 @@ func Configure(cfg ...any) (path *Path) {
 
 	if len(os.Args) > 1 {
 
-		n := max(18, len(name), len(Version)+10, len(Build)+10)
-
 		switch strings.TrimLeft(os.Args[1], "-") {
 		case "version":
 
-			fmt.Printf("\n %-s\n%s\n version %s\n build   %s\n\n",
-				name, strings.Repeat("-", n+2), Version, Build)
+			fmt.Printf("%s version %s build %s\n", name, Version, Build)
 			if opt.NoExit {
 				return nil
 			}
@@ -116,16 +113,14 @@ func Configure(cfg ...any) (path *Path) {
 
 		case "help":
 
-			fmt.Printf("\n %-s\n%s\n version %s\n build   %s\n\n",
-				name, strings.Repeat("-", n+2), Version, Build)
 			if len(Description) > 0 {
 				fmt.Printf("%s\n\n", Description)
 			}
-
+			fmt.Printf("usage: %s [flags]\n\n", name)
 			if !opt.NoHelp && len(cfg) > 0 {
 				usage(cfg...)
+				fmt.Println()
 			}
-			fmt.Println()
 			if opt.NoExit {
 				return nil
 			}
@@ -179,9 +174,9 @@ func Configure(cfg ...any) (path *Path) {
 	return
 }
 
-// usage renders the field table (field/alias/flags/default/help) for one or
-// more cfg structs; shared by Configure's -help branch and the subcommand
-// drill-in help in command.go
+// usage renders the terse, one-line-per-flag table (name/alias/[type]/[ore*]/
+// (default)/help) for one or more cfg structs; shared by Configure's -help
+// branch and the subcommand drill-in help in command.go
 func usage(cfg ...any) {
 
 	var tag string
@@ -222,13 +217,18 @@ func usage(cfg ...any) {
 					}
 				}
 			}
-			// fmt.Printf(" %-15s", tag)
-			fmt.Printf(" %-15s %-5s [%-1s%-1s%-1s%-1s] ",
-				tag, env.Alias, env.Order, env.Require, env.Environ, env.Hidden)
 
-			// default field
-			tag, _ = v.Type().Field(j).Tag.Lookup("default")
-			fmt.Printf("default:%-10s ", tag)
+			// name, alias, [type] code, [ore*] attribute slots
+			fmt.Printf(" %-15s %-5s [%s] [%-1s%-1s%-1s%-1s] ",
+				tag, env.Alias, typeCode(v.Field(j)),
+				env.Order, env.Require, env.Environ, env.Hidden)
+
+			// default field, parenthesized when present
+			if tag, ok = v.Type().Field(j).Tag.Lookup("default"); ok && len(tag) > 0 {
+				fmt.Printf("%-10s ", "("+tag+")")
+			} else {
+				fmt.Printf("%-10s ", "")
+			}
 
 			// help field
 			tag, _ = v.Type().Field(j).Tag.Lookup("help")
@@ -237,6 +237,25 @@ func usage(cfg ...any) {
 		}
 
 	}
+}
+
+// typeCode returns the single-letter type code shown in the help table:
+// s string, i int, u uint, b bool, d time.Duration; blank for unsupported.
+func typeCode(v reflect.Value) string {
+	if v.Type().String() == "time.Duration" {
+		return "d"
+	}
+	switch v.Kind() {
+	case reflect.String:
+		return "s"
+	case reflect.Int, reflect.Int64:
+		return "i"
+	case reflect.Uint, reflect.Uint64:
+		return "u"
+	case reflect.Bool:
+		return "b"
+	}
+	return " "
 }
 
 // parse will set the speficied cfg struct field value according to the tag:env and
