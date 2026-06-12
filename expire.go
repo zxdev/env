@@ -9,22 +9,20 @@ import (
 	"time"
 )
 
-/*
-
-	var expire env.Expire
-	expire.Add(nil,"my/expire/silent").Silent()
-	expire.Silent().Add(nil, "my/silent/everything")
-	...
-	env.GraceInitContext(&expire.Start)
-
-*/
-
 type expire struct {
 	Path string
 	TTL  time.Duration
 }
 
-// Expire struct
+// Expire periodically removes regular files older than their registered TTL;
+// Start satisfies the graceful Init signature so it can be managed directly.
+//
+//	var expire env.Expire
+//	expire.Add(nil, "srv/cache")     // nil -> 24h TTL
+//	expire.Add(6, "srv/short")       // int -> n hours
+//	expire.Add("1h30m", "srv/build") // string -> parsed duration
+//	expire.Freq = time.Hour          // sweep frequency (default hourly)
+//	grace.Init(expire.Start)         // run under the graceful controller
 type Expire struct {
 	Freq   time.Duration // frequency of checks (default: hourly)
 	item   []expire

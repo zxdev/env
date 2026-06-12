@@ -1,100 +1,384 @@
-# env package
+# env
 
-Designed to provide simple and useful tooling to popoulate simple structs and provide managagement and helpful services utilizing struct tags instead of package like flag or third-party solutions.
+[![Go Reference](https://pkg.go.dev/badge/github.com/zxdev/env.svg)](https://pkg.go.dev/github.com/zxdev/env)
 
+A small, zero-dependency Go package for bootstrapping command-line programs and
+long-running services. It populates plain structs from struct tags, environment
+variables, and command-line arguments, and bundles the runtime plumbing most
+daemons end up rewriting: graceful startup/shutdown, environment paths, file
+locks, on-disk persistence, and expiring scratch directories.
 
-```golang
-type params struct {
-	Action    string `env:"A,require,order" help:"a name to use"`
-	Secret    string `env:"hidden" help:"a secret"`
-	Flag      bool   `default:"on"  help:"a flag setting"`
-	Number    int    `default:"5" help:"a number"`
-	timestamp int64  // not parsed or reported in Summary
-}
+Everything is driven by struct tags instead of the `flag` package or a
+third-party configuration library, and the whole package has no dependencies
+beyond the standard library.
 
-func main() {
-	var param params
-	paths := env.NewEnv(&param)
-}
-
+```bash
+go get github.com/zxdev/env
 ```
 
-Set struct params and populate by calling ```env.NewEnv(&param)``` to parse and populate the struct as shown.
-* Any default value is overloaded by system environment that is in turn overloaded by any command line values. 
-
-Supported types in env.Parser are limited to ```string```, ```bool```, and ```int```. 
-* Bool understands and accepts: ```on```, ```yes```, ```ok```, ```true```, and ```1``` and their associated negative counter parts. 
-* Everything you want can be derived from these three basic types, including arrays and maps that utilize your own encoding and decoding.
-	* Array can be passed or set as ```one,two,three``` and split by on comman, simarly a map can be encode as ```k1:v1,k1:v2``` and decoded by splitting on comma and then each set split on the colon.
+Requires Go 1.26+.
 
 ---
 
-Struct tag element supported and descriptions.
+## Quick start
 
-* ```env```: alias,order,require,environ,hidden
-	* alias support can be short form of the switch ```-A``` instead of ```-action```
-	* order makes it switchless and populated based on os.Args location index
-	* require will cause hard stop when not defaulted or provided
-	* environ sets all struct elements in the system envronment
-	* hidden redacts the struct value in the summary report 
+```go
+type params struct {
+    Action string `env:"a,order,require" help:"action to perform"`
+    Secret string `env:"hidden"          help:"a shared secret"`
+    Flag   bool   `default:"on"          help:"a flag setting"`
+    Number int    `default:"5"           help:"a number"`
+    when   int64  // unexported: never parsed or reported
+}
 
-* ```default```: string, bool, int values
-* ```help```: description
-
-Automatic ```-help``` support reports basic information, the struct field name, the alias is any, the env:tag in use, any default value and the help description.
-
+func main() {
+    var p params
+    path := env.NewEnv(&p) // parse, populate, and log a summary
+    _ = path               // *env.Path with Etc/Srv/Var/Tmp
+}
 ```
- % go run example/main.go -help
+
+`env.NewEnv` (an alias for `env.Configure`) parses the tagged struct, prints a
+summary log, and returns an `*env.Path` describing the environment's standard
+directories. Pass more than one struct to populate several at once
+(`env.NewEnv(&app, &server)`); each appears as its own block in the summary.
+
+---
+
+## Configuration
+
+### Supported field types
+
+`string`, `bool`, `int`, `int64`, `uint`, `uint64`, and any type derived from
+them (for example `time.Duration`, which is an `int64`). Unsupported fields are
+left untouched.
+
+Booleans accept `on`, `yes`, `ok`, `true`, `1` as true; anything else is false.
+
+Slices and maps are not parsed directly, but everything you need can be built
+from the basic types: take a `string` and split it yourself
+(`one,two,three` → slice; `k1:v1,k2:v2` → map).
+
+### Overload precedence
+
+For each field the value is resolved in this order, with later sources winning:
+
+1. `default:` tag
+2. command-line flag (`-name value`, `-name=value`, `-name:value`, or alias)
+3. environment variable `NAME` (the field name, upper-cased)
+4. ordered positional argument (when the field is tagged `order`)
+
+### Struct tags
+
+| Tag        | Purpose                                                                 |
+|------------|-------------------------------------------------------------------------|
+| `env`      | comma-separated flags: `alias`, `order`, `require`, `environ`, `hidden` |
+| `default`  | initial value (`string`, `bool`, or `int`)                              |
+| `help`     | description shown in `-help`                                             |
+| `name`     | override the field label shown in the help table and summary log        |
+| `env:"-"`  | ignore the field entirely (handy for embedded `*env.Path`, slices, etc.)|
+
+`env` flag meanings:
+
+- **alias** — a short switch, e.g. `-a` in place of `-action` (any token that
+  isn't a reserved keyword is treated as the alias).
+- **order** — switchless positional; populated by its index in `os.Args`.
+- **require** — hard stop (exit code 1) when the field is neither defaulted nor
+  provided.
+- **environ** — mirror the resolved value back into the process environment
+  (under the lower-cased field name).
+- **hidden** — redact the value in the summary log (shown as `<hidden>`).
+
+### Options
+
+Pass an `*env.Options` (or `env.Options`) as the first argument to `Configure` /
+`NewEnv` to control behavior:
+
+```go
+path := env.NewEnv(&env.Options{Silent: true, SetENV: true}, &p)
+```
+
+| Field    | Effect                                                              |
+|----------|--------------------------------------------------------------------|
+| `Silent` | suppress the summary log                                            |
+| `NoHelp` | suppress the `-help` field table                                   |
+| `SetENV` | mirror every resolved field into the environment (global `environ`)|
+| `NoExit` | return `nil` instead of calling `os.Exit(0)` on version/help       |
+
+`NoExit` is primarily for tests, so a spoofed `version`/`help` invocation
+returns control instead of terminating the process.
+
+### Build-time metadata
+
+Set these package variables at build time to populate the banner and help
+output:
+
+```bash
+go build -ldflags "\
+  -X github.com/zxdev/env.Version=1.2.3 \
+  -X github.com/zxdev/env.Build=$(git rev-parse --short HEAD)"
+```
+
+`env.Description` may also be set in code to add a paragraph to the help output.
+
+### Environment paths
+
+`Configure` detects the OS and returns standard directories:
+
+| OS    | Etc        | Srv        | Var        | Tmp        |
+|-------|------------|------------|------------|------------|
+| linux | `/etc`     | `/srv`     | `/var`     | `/tmp`     |
+| other | `_dev/etc` | `_dev/srv` | `_dev/var` | `_dev/tmp` |
+
+On non-linux hosts the program runs in a self-contained `_dev/` tree, so
+development never touches system directories.
+
+### Runtime log control
+
+The reserved `log` switch toggles timestamp headers at runtime without a
+recompile: `-log on` enables date/time prefixes, `-log off` disables them. On
+linux, timestamps are off by default (assuming an external logger adds them);
+elsewhere they are on.
+
+### Built-in commands
+
+`version` and `help` are handled automatically:
+
+```text
+% go run example/main.go help
 
  development
 --------------------
- version 
- build   
+ version
+ build
 
- action         A     [or  ] default:           an action to do
- secret               [   *] default:           a secret
- flag                 [    ] default:on         a flag setting
- number               [    ] default:5          a number
-
+ action         a     [or  ] default:           action to perform
+ secret               [   *] default:           a shared secret
+ flag                 [    ] default:on          a flag setting
+ number               [    ] default:5           a number
 ```
 
-A summary log reports the struct values and integrates with other env system. If more than one param is populated by env.NewENV(&param,&server), each will appear as seperate sets in the order provided in the log summary output.
+A populated run prints the summary log:
 
+```text
+% go run example/main.go run
+2026/06/11 21:19:54 |----------------------------------------|
+2026/06/11 21:19:54 | MAIN ::::::::::::::::::::::: event log |
+2026/06/11 21:19:54 |-----//o--------------------------------|
+2026/06/11 21:19:54                                 version
+2026/06/11 21:19:54                                 build
+2026/06/11 21:19:54                             pid 65812
+2026/06/11 21:19:54 |-----//o--------------------------------|
+2026/06/11 21:19:54  action         | run
+2026/06/11 21:19:54  secret         | <hidden>
+2026/06/11 21:19:54  flag           | true
+2026/06/11 21:19:54  number         | 5
+2026/06/11 21:19:54 |----------------------------------------|
 ```
 
-% go run example/main.go run   
-2024/07/10 21:19:54 |----------------------------------------|
-2024/07/10 21:19:54 | MAIN ::::::::::::::::::::::: event log |
-2024/07/10 21:19:54 |-----//o--------------------------------|
-2024/07/10 21:19:54                                 version
-2024/07/10 21:19:54                                 build
-2024/07/10 21:19:54                             pid 65812
-2024/07/10 21:19:54 |-----//o--------------------------------|
-2024/07/10 21:19:54  action         | run
-2024/07/10 21:19:54  secret         | <hidden>
-2024/07/10 21:19:54  flag           | true
-2024/07/10 21:19:54  number         | 5
-2024/07/10 21:19:54 |----------------------------------------|
-2024/07/10 21:19:54 _dev/srv
-2024/07/10 21:19:54 sample: start
-2024/07/10 21:19:55 main: bootstrap complete
-2024/07/10 21:19:58 main: interrupt shutdown
-2024/07/10 21:19:58 sample: stop
-2024/07/10 21:19:58 main: shutdown initiated
-2024/07/10 21:19:58 |----------------------------------------|
-2024/07/10 21:19:58 main: bye
-2024/07/10 21:19:58 |----------------------------------------|
+---
 
+## Subcommands
 
+`env.Commands` adds go-tool style subcommand dispatch. Each `env.Command` pairs
+a name and one-line help with a tagged config struct and an optional handler;
+the selected command's flags are parsed with the same machinery as
+`Configure`.
+
+```go
+var pull pullCfg
+var push pushCfg
+
+path, name := env.Commands(nil,
+    env.Command{
+        Name: "pull",
+        Help: "retrieve and stage records",
+        Cfg:  &pull,
+        Run:  func(path *env.Path) { pull.exec(path) },
+    },
+    env.Command{
+        Name: "push",
+        Help: "publish staged records",
+        Cfg:  &push,
+    },
+)
+_ = name // the selected command word
 ```
 
-* env.NewEnv - parse and populate a param struct
-* env.Parser - parser used with NewEnv methods
+Dispatch surface:
 
-* env.Dir - ensure a directory exists
-* env.Expire - expiration file manager with graceful interface support
-* env.Graceful - graceful startup/shutdown controller
-* env.Lock - process file lock (simple in use detection)
-* env.Persist - persist and resume with data on disk
-* env.Shutdown - shutdown, not necessary with graceful controller
+```text
+prog                 -> menu listing every command
+prog help            -> menu
+prog help <cmd>      -> that command's flag table
+prog <cmd> help      -> that command's flag table
+prog version         -> version banner
+prog <cmd> [flags]   -> Configure(cmd.Cfg) on the remaining args, then Run
+```
 
+The subcommand word is stripped from `os.Args` before parsing, so each command
+sees only its own flags and ordered positionals. An unknown command prints the
+menu and exits non-zero. Pass `*env.Options` (or `nil` for defaults) to control
+`Silent`/`NoHelp`/`SetENV`/`NoExit`.
+
+---
+
+## Graceful lifecycle
+
+`env.Graceful` coordinates startup and shutdown for long-running services. It
+captures `os.Interrupt`, `SIGTERM`, and `SIGHUP`, drives a master context, and
+blocks until every managed process has reported done.
+
+```go
+func main() {
+    var a Action
+    grace := env.NewGraceful().Init(a.Init00, a.Init01, a.Init02)
+    defer grace.Shutdown()
+    grace.Register(func() { log.Println("extra cleanup") })
+    grace.Wait() // block until all Init processes report ready
+}
+```
+
+`Init` accepts three function signatures:
+
+| Signature                                | Behavior                                                                 |
+|------------------------------------------|--------------------------------------------------------------------------|
+| `func()`                                 | non-blocking; `init.Done()` fires when it returns. `Wait()` confirms ready. |
+| `func(context.Context, *sync.WaitGroup)` | blocking; call `init.Done()` yourself when ready, then block on `<-ctx.Done()`. `Wait()` confirms ready. |
+| `func(context.Context)`                  | blocking; ready state is indeterminate — `Wait()` only confirms it started. |
+
+Control methods:
+
+- `Silent()` — toggle the framed event logging (default on).
+- `Frame()` — toggle the `|----|` bar frames around events.
+- `SetExit(n)` — exit code for `os.Exit(n)`; `0` (default) exits via a plain return.
+- `Context()` — the master `context.Context`, for extending to other processes.
+- `Register(fns...)` — extra cleanup functions run during shutdown, outside the Init architecture.
+- `Wait()` — block until all Init processes report ready.
+- `Cancel()` — trigger an orderly shutdown programmatically.
+- `Shutdown()` — block until context is done and all managed processes exit.
+
+`env.Shutdown(ctx, fn)` is a minimal alternative for programs that don't use the
+full graceful controller: it blocks on a signal or the context, runs `fn`, and
+calls `os.Exit(0)`.
+
+---
+
+## Utilities
+
+### `env.Dir` — ensure a directory tree
+
+```go
+env.Dir("srv", "cache")   // creates srv/cache, returns the joined path
+env.Dir("srv", "data.db") // creates srv only; treats data.db as a file
+```
+
+> **Pitfall:** the final element is treated as a *file* (and not created as a
+> directory) when it contains `.`, `_`, or `-`. A real directory named
+> `log_files`, `my-app`, or `v1.2` is mistaken for a file and silently skipped.
+> Append a trailing element (`env.Dir("srv", "log_files", "")`) or create it
+> explicitly to work around the heuristic.
+
+### `env.Conf` — JSON config with defaults
+
+Apply `default:` tags, then overload from a JSON file (top level only, no
+recursion):
+
+```go
+type Example struct {
+    Text   string `json:"text,omitempty"`
+    Number int    `json:"number,omitempty" default:"10"`
+    Show   bool   `json:"show,omitempty"   default:"on"`
+}
+
+var cfg Example
+env.Conf(&cfg, "conf.json") // missing/unreadable file leaves defaults intact
+```
+
+### `env.Lock` — single-instance file lock
+
+```go
+lock := env.Lock{Path: "/tmp", TTL: time.Hour}
+if !lock.Lock() {
+    return // another instance holds a fresh lock
+}
+defer lock.Unlock()
+```
+
+Writes `{program}.lock` containing the PID into `Path`. A lock older than `TTL`
+(default 1h) is treated as stale and reacquired.
+
+### `env.Expire` — expiring scratch directories
+
+Periodically removes regular files older than their TTL. Implements the
+graceful `Init` signature, so it can be managed directly.
+
+```go
+var expire env.Expire
+expire.Add(nil, "srv/cache")     // nil → 24h TTL
+expire.Add(6, "srv/short")       // int → n hours
+expire.Add("1h30m", "srv/build") // string → parsed duration
+expire.Freq = time.Hour          // sweep frequency (default hourly)
+
+grace.Init(expire.Start)
+```
+
+An invalid, zero, or negative TTL falls back to 24h rather than deleting
+everything on the next sweep. `Silent()` toggles logging.
+
+### `env.Persist` — gob persistence with TTL
+
+Save and resume arbitrary data across runs; an optional TTL expires stale state.
+
+```go
+var store env.Persist = "queue" // -> queue.persist
+ttl := 24 * time.Hour
+
+m := env.NewMap()
+store.Load(m, &ttl) // older than ttl? removed instead of loaded
+m.Add("job-key")
+
+if next := m.Next(ttl); next != nil {
+    for {
+        key, more := next()
+        if !more {
+            break
+        }
+        // process key (consumed as it is read)
+    }
+}
+
+if len(*m) > 0 {
+    store.Save(m) // persist what is left
+}
+```
+
+`env.Map` (`map[string]time.Time`) is a convenience type whose `Next` iterator
+drains entries as it yields them and drops anything older than the supplied age.
+`Load`/`Save` accept any gob-encodable value, not just `Map`.
+
+---
+
+## API summary
+
+| Symbol                         | Purpose                                              |
+|--------------------------------|------------------------------------------------------|
+| `env.NewEnv` / `env.Configure` | parse & populate tagged structs, return `*env.Path`  |
+| `env.Commands`                 | go-tool style subcommand dispatch                    |
+| `env.Options`                  | configure Silent/NoHelp/SetENV/NoExit                |
+| `env.Path`                     | standard environment directories (Etc/Srv/Var/Tmp)   |
+| `env.Conf`                     | JSON config file with `default:` tag support         |
+| `env.Dir`                      | ensure a directory tree exists                       |
+| `env.Lock`                     | single-instance file lock                            |
+| `env.Expire`                   | TTL-based scratch-file cleanup (graceful `Init`)     |
+| `env.Persist` / `env.Map`      | gob persistence with optional expiry                 |
+| `env.NewGraceful`              | graceful startup/shutdown controller                 |
+| `env.Shutdown`                 | minimal signal/context shutdown helper               |
+
+See [`example/main.go`](example/main.go) for a runnable graceful service.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
