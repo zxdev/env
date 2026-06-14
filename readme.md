@@ -54,6 +54,9 @@ them (for example `time.Duration`, which is an `int64`). Unsupported fields are
 left untouched.
 
 Booleans accept `on`, `yes`, `ok`, `true`, `1` as true; anything else is false.
+A bool flag may also be given *naked* on the command line — `-tls` alone sets it
+true — while `-tls:off` or `-tls=false` disables it. A naked bool never consumes
+the following token, so `-tls foo` sets `tls` true and leaves `foo` alone.
 
 Slices and maps are not parsed directly, but everything you need can be built
 from the basic types: take a `string` and split it yourself
@@ -64,7 +67,8 @@ from the basic types: take a `string` and split it yourself
 For each field the value is resolved in this order, with later sources winning:
 
 1. `default:` tag
-2. command-line flag (`-name value`, `-name=value`, `-name:value`, or alias)
+2. command-line flag (`-name value`, `-name=value`, `-name:value`, a naked
+   `-name` for bools, or an alias)
 3. environment variable `NAME` (the field name, upper-cased)
 4. ordered positional argument (when the field is tagged `order`)
 

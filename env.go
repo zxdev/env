@@ -276,6 +276,32 @@ func (p *Options) parse(cfg ...any) {
 
 	var m = make(map[string]string)
 
+	// pre-scan cfg for bool field names+aliases so a naked "-flag" registers
+	// as true instead of swallowing the next token, which need not be its
+	// value (eg. "-tls foo" should set tls and leave foo as a positional)
+	isBool := make(map[string]bool)
+	for i := range cfg {
+		v := reflect.Indirect(reflect.ValueOf(cfg[i]))
+		if v.Kind() != reflect.Struct {
+			continue
+		}
+		for j := 0; j < v.NumField(); j++ {
+			if v.Field(j).Kind() != reflect.Bool || !v.Field(j).CanSet() {
+				continue
+			}
+			isBool[strings.ToLower(v.Type().Field(j).Name)] = true
+			if tag, ok := v.Type().Field(j).Tag.Lookup("env"); ok && tag != "-" {
+				for _, t := range strings.Split(tag, ",") {
+					switch t {
+					case "", "order", "require", "environ", "hidden":
+					default:
+						isBool[t] = true // alias
+					}
+				}
+			}
+		}
+	}
+
 	// processes os.Args and build/overload a map[string]string; support for single
 	// reference switches -a aa -b
 	for i := 0; i < len(os.Args); i++ {
@@ -288,6 +314,10 @@ func (p *Options) parse(cfg ...any) {
 			case strings.Contains(key, ":"):
 				s := strings.SplitN(key, ":", 2)
 				m[s[0]] += s[1]
+			case isBool[key]:
+				// naked bool: presence alone sets true; an explicit value
+				// still uses the -flag:off / -flag=false forms above
+				m[key] = "true"
 			default:
 				i++
 				if i < len(os.Args) {
